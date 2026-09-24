@@ -20,3 +20,4 @@ ui-debug.log*
 data/auction.yml
 # Wrangler (Cloudflare Pages deploy) local state
 .wrangler
+/public/images/
