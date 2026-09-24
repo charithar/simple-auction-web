@@ -1,0 +1,36 @@
+{
+  "name": "auction-vue",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "test": "vitest run tests/unit",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-auction \"vitest run tests/rules\"",
+    "test:docker": "docker build -t auction-vue-test . && docker run --rm auction-vue-test sh -c \"npm run lint && npm test && npm run test:rules\"",
+    "emulators": "firebase emulators:start --only firestore,auth --project demo-auction"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "js-yaml": "^5.4.2",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "eslint": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "firebase-tools": "^15.31.0",
+    "globals": "^17.12.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}

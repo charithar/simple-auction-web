@@ -1,0 +1,150 @@
+rules_version = '2';
+
+// Security model
+// --------------
+// There is no backend: these rules are the only server-side enforcement.
+// A bid is ONE atomic write (transaction/batch) of two documents:
+//   1. update items/{itemId}: currentAmount, highBidderUid, bidCount, lastBidAt
+//   2. create items/{itemId}/bids/{bidCount}: amount, uid, createdAt
+// Each side checks the other with get()/getAfter() so neither can be written alone.
+//
+// Anti-sniping: an item's effective end is max(endTime, lastBidAt + antiSnipeSeconds).
+// Increments: item.minIncrement / item.maxIncrement override settings/auction values.
+// Amounts are whole numbers (int) to avoid floating-point comparisons.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isGoogleUser() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isRegistered() {
+      return isGoogleUser()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function settings() {
+      return get(/databases/$(database)/documents/settings/auction).data;
+    }
+
+    function itemPath(itemId) {
+      return /databases/$(database)/documents/items/$(itemId);
+    }
+
+    function bidPath(itemId, bidId) {
+      return /databases/$(database)/documents/items/$(itemId)/bids/$(bidId);
+    }
+
+    function validName(name) {
+      return name is string && name.size() > 0 && name.size() <= 80;
+    }
+
+    // Bidding is allowed until max(endTime, lastBidAt + antiSnipeSeconds).
+    function stillOpen(item, s) {
+      return request.time < item.endTime
+        || (item.get('lastBidAt', null) != null
+            && request.time < item.lastBidAt + duration.value(s.antiSnipeSeconds, 's'));
+    }
+
+    // First bid may equal the starting price (currentAmount before any bids);
+    // later bids must beat the current amount by at least minIncrement.
+    function amountOk(before, amount, s) {
+      let minInc = before.get('minIncrement', s.minIncrement);
+      let maxInc = before.get('maxIncrement', s.get('maxIncrement', null));
+      let floor = before.bidCount == 0 ? before.currentAmount : before.currentAmount + minInc;
+      return amount is int
+        && amount >= floor
+        && (maxInc == null || amount <= before.currentAmount + maxInc);
+    }
+
+    function isValidBid(itemId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let n = after.bidCount;
+      let s = settings();
+      return after.diff(before).affectedKeys()
+               .hasOnly(['currentAmount', 'highBidderUid', 'bidCount', 'lastBidAt'])
+        && n is int
+        && n == before.bidCount + 1
+        && after.highBidderUid == request.auth.uid
+        && after.lastBidAt == request.time
+        && isRegistered()
+        && s.biddingOpen == true
+        && stillOpen(before, s)
+        && amountOk(before, after.currentAmount, s)
+        && existsAfter(bidPath(itemId, string(n)))
+        && getAfter(bidPath(itemId, string(n))).data.uid == request.auth.uid
+        && getAfter(bidPath(itemId, string(n))).data.amount == after.currentAmount;
+    }
+
+    // ---------- collections ----------
+
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      // Managed only from the Firebase console.
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow create: if isGoogleUser()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt', 'lastSeen'])
+        && request.resource.data.keys().hasAll(['name', 'email', 'createdAt', 'lastSeen'])
+        && validName(request.resource.data.name)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.lastSeen == request.time;
+      allow update: if isGoogleUser()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastSeen'])
+        && validName(request.resource.data.name)
+        && request.resource.data.lastSeen == request.time;
+      allow delete: if isAdmin();
+    }
+
+    match /items/{itemId} {
+      allow read: if signedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isValidBid(itemId) || isAdmin();
+
+      match /bids/{bidId} {
+        allow create: if isRegistered()
+          && request.resource.data.keys().hasOnly(['amount', 'uid', 'createdAt'])
+          && request.resource.data.keys().hasAll(['amount', 'uid', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && getAfter(itemPath(itemId)).data.bidCount == get(itemPath(itemId)).data.bidCount + 1
+          && bidId == string(getAfter(itemPath(itemId)).data.bidCount)
+          && getAfter(itemPath(itemId)).data.highBidderUid == request.auth.uid
+          && getAfter(itemPath(itemId)).data.currentAmount == request.resource.data.amount;
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // Reads of bids, including the collection-group query for "my bids".
+    // Queries must filter on uid == own uid to pass.
+    match /{path=**}/bids/{bidId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+  }
+}
