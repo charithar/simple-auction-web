@@ -2,10 +2,15 @@ import { collection, collectionGroup, doc, onSnapshot, orderBy, query, where } f
 
 // Every function returns an unsubscribe callback.
 
-export const subscribeItems = (db, onItems, onError) =>
+// onChangeCount (optional) receives the number of changed docs per snapshot,
+// i.e. the billed reads; used by scripts/load-emulator.mjs.
+export const subscribeItems = (db, onItems, onError, onChangeCount) =>
   onSnapshot(
     query(collection(db, 'items'), orderBy('order')),
-    (snap) => onItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (snap) => {
+      onChangeCount?.(snap.docChanges().length)
+      onItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    },
     onError,
   )
 

@@ -6,6 +6,7 @@ import { placeBid, bidErrorMessage, BidError } from '../lib/bids.js'
 import { itemView } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useAuthStore } from '../stores/auth.js'
+import { useOnline } from '../composables/useOnline.js'
 import ItemImage from './ItemImage.vue'
 import StandingBadge from './StandingBadge.vue'
 import TimeLeft from './TimeLeft.vue'
@@ -50,7 +51,9 @@ const amountProblem = computed(() => {
   if (view.value.maxBid != null && amount.value > view.value.maxBid) return `Maximum bid is ${money(view.value.maxBid)}.`
   return ''
 })
-const canSubmit = computed(() => view.value?.canBid && amount.value != null && !amountProblem.value && !submitting.value)
+const online = useOnline()
+const canSubmit = computed(() =>
+  online.value && view.value?.canBid && amount.value != null && !amountProblem.value && !submitting.value)
 
 const money = (v) => formatMoney(item.value?.currency, v)
 
@@ -200,6 +203,7 @@ async function submit() {
               Bids in the last {{ Math.round(auction.settings.antiSnipeSeconds / 60) }} min extend the closing time.
             </p>
             <p v-if="amountProblem" class="text-sm text-rose-600">{{ amountProblem }}</p>
+            <p v-if="!online" class="text-sm text-amber-800">You're offline. Reconnect to place a bid.</p>
           </form>
           <p v-else class="mt-3 text-sm text-slate-600">
             {{ view.ended ? 'Bidding on this item has closed.' : 'Bidding is currently paused.' }}

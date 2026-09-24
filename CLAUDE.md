@@ -17,6 +17,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
 - `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator. It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
+- `npm run load [-- --users 100 --duration 60 --gap 10]`: load test against the running emulators. Simulated bidders keep the real listeners and bid through `placeBid`. The script counts billed reads (the `docChanges` per snapshot, via the optional 4th argument of `subscribeItems`) and projects the daily budget. **Emulator latency grows with the number of listeners (one process fans out every change) and doesn't reflect production.**
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
 
@@ -66,7 +67,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 - Spark allows 50k reads/day.
   - A fresh load costs about 46 reads (44 items + settings + own bids). A reload within 30 minutes costs only the changed docs.
   - Every bid costs 1 read per attached listener.
-- Rough capacity: 100 users × 3 fresh loads ≈ 14k, which leaves about 35k for bid fan-out, e.g. 700 bids × 50 watchers on average.
+- **Measured** (`npm run load`, 100 bidders): 84 fan-out reads per accepted bid with 100 listeners, i.e. about 1 per listener. Projections: 400 fresh loads + 600 bids × 30 average watchers ≈ 38k; × 60 watchers ≈ 56k, **over the quota**.
 - Mitigations: detach listeners on hidden tabs; items are readable only when signed in; the only `bids` listener is the user's own; App Check is optional.
 - The quota resets at midnight US Pacific time. Schedule the auction after the reset.
 
@@ -77,4 +78,8 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 3. ✅ Auth: `stores/auth.js`, `lib/profile.js` (user doc sync and clock offset, admin check), `stores/clock.js` (`useNow()`), `/admin` guard
 4. ✅ Bidder UI: grid, bid dialog, filters/search/sort, winning/outbid badges, hidden-tab detach, persistent cache, auction file format + converter, `seed` and `smoke` scripts. Checked in headless Chrome on desktop and mobile.
 5. ✅ Admin: import with a diff preview, bidding on/off and message, live table with leading bidder, bid history, extend/set closing time, reset bids (only while paused), stats, winners and all-bids CSV. Emulator tests are in `tests/rules/admin.test.js`; checked in headless Chrome.
-6. ⬜ Hardening: App Check, load test (extend `scripts/smoke-emulator.mjs`), README and pre-auction checklist
+6. ✅ Hardening:
+   - Optional App Check (reCAPTCHA v3). It's dynamically imported behind a top-level await in `firebase.js`, only when `VITE_APPCHECK_SITE_KEY` is set at build time.
+   - Offline banner, and bidding disabled while offline (`composables/useOnline.js`).
+   - Load test.
+   - README: setup, checklist, day-of runbook, budget.
