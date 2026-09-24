@@ -9,7 +9,7 @@
 //
 // Without domains only the emulator's @example.com accounts (demo-* projects) get
 // in; --require refuses to render that, so a deploy can't lock everyone out.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -29,7 +29,9 @@ export function renderRules(template, domains) {
   return template.replace(PLACEHOLDER, () => cond)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// realpath: on Windows argv[1] keeps the path's typed case, import.meta.url doesn't;
+// a mismatch would silently skip the render and let deploy:rules ship a stale file.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const { values: args } = parseArgs({ options: { require: { type: 'boolean', default: false } } })
   const { loadEnv } = await import('vite')
   const value = process.env.VITE_ALLOWED_DOMAINS ?? loadEnv('production', process.cwd(), 'VITE_').VITE_ALLOWED_DOMAINS
