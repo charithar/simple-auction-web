@@ -11,7 +11,24 @@ const route = useRoute()
 <template>
   <header class="bg-slate-800 text-white">
     <nav class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-      <RouterLink to="/" class="mr-auto truncate text-lg font-semibold">{{ auction.settings?.title || 'Auction' }}</RouterLink>
+      <RouterLink to="/" class="truncate text-lg font-semibold">{{ auction.settings?.title || 'Auction' }}</RouterLink>
+      <!-- Tells people prices update by themselves, so they don't keep refreshing. -->
+      <span
+        v-if="auth.signedIn"
+        class="mr-auto flex shrink-0 items-center gap-1.5 text-xs text-slate-300"
+        :title="auction.connection === 'live' ? 'Prices update automatically. No need to refresh.' : ''"
+      >
+        <span
+          class="size-2 rounded-full"
+          :class="{
+            'animate-pulse bg-emerald-400': auction.connection === 'live',
+            'bg-amber-400': auction.connection === 'cooldown' || auction.connection === 'connecting',
+            'bg-slate-500': auction.connection === 'paused',
+          }"
+        ></span>
+        <span class="hidden sm:inline">{{ { live: 'Live', cooldown: 'Reconnecting…', connecting: 'Connecting…', paused: 'Paused' }[auction.connection] }}</span>
+      </span>
+      <span v-else class="mr-auto"></span>
 
       <template v-if="!auth.ready || auth.busy">
         <span class="text-sm text-slate-400">Loading…</span>

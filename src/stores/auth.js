@@ -3,6 +3,10 @@ import { ref, computed } from 'vue'
 import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from 'firebase/auth'
 import { auth, db, googleProvider } from '../firebase.js'
 import { syncProfile, checkAdmin } from '../lib/profile.js'
+import { readCached, writeCached, clearCached } from '../lib/loadGuard.js'
+
+const PROFILE_TTL_MS = 30 * 60_000
+const profileKey = (uid) => `auction.profile.${uid}`
 
 const signInMessages = {
   'auth/popup-blocked': 'Your browser blocked the sign-in popup. Allow popups for this site and try again.',
@@ -42,6 +46,18 @@ export const useAuthStore = defineStore('auth', () => {
         markReady()
         return
       }
+      // Profile sync + admin check cost 2 reads and 1 write, so they run at most
+      // once per PROFILE_TTL per browser, not on every page load. Only the UI
+      // relies on this; the security rules check registration/admin themselves.
+      const cached = readCached(profileKey(fbUser.uid), PROFILE_TTL_MS)
+      if (cached) {
+        user.value = { uid: fbUser.uid, name: cached.name, email: fbUser.email, photoURL: fbUser.photoURL }
+        isAdmin.value = cached.admin
+        clockOffsetMs.value = cached.offset
+        error.value = ''
+        markReady()
+        return
+      }
       busy.value = true
       try {
         const [{ profile, clockOffsetMs: offset }, admin] = await Promise.all([
@@ -53,6 +69,7 @@ export const useAuthStore = defineStore('auth', () => {
         isAdmin.value = admin
         clockOffsetMs.value = offset
         error.value = ''
+        writeCached(profileKey(fbUser.uid), { name: profile.name, admin, offset })
       } catch (e) {
         if (gen !== generation) return
         console.error('Profile sync failed', e)
@@ -91,7 +108,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const signOut = () => fbSignOut(auth)
+  // Signing out also forgets the cached profile/admin state, so signing back in
+  // re-checks it (e.g. right after being made an admin).
+  function signOut() {
+    if (user.value) clearCached(profileKey(user.value.uid))
+    return fbSignOut(auth)
+  }
 
   return { user, isAdmin, clockOffsetMs, ready, busy, error, signedIn, init, whenReady, signIn, signOut }
 })

@@ -97,6 +97,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Display data for all items in one document (catalog/items), so a page
+    // load costs one read. Items themselves remain authoritative for bidding.
+    match /catalog/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     match /admins/{uid} {
       // Managed only from the Firebase console.
       allow read: if signedIn() && request.auth.uid == uid;

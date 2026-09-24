@@ -14,6 +14,7 @@
     "seed": "node scripts/seed-emulator.mjs",
     "smoke": "node scripts/smoke-emulator.mjs",
     "load": "node scripts/load-emulator.mjs",
+    "check": "node scripts/check-integrity.mjs",
     "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 4000:4000 -p 4400:4400 -p 8080:8080 -p 9099:9099 auction-vue-test npx firebase emulators:start --only firestore,auth --project demo-auction",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-auction"
   },

@@ -17,7 +17,11 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
 - `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator. It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
-- `npm run load [-- --users 100 --duration 60 --gap 10]`: load test against the running emulators. Simulated bidders keep the real listeners and bid through `placeBid`. The script counts billed reads (the `docChanges` per snapshot, via the optional 4th argument of `subscribeItems`) and projects the daily budget. **Emulator latency grows with the number of listeners (one process fans out every change) and doesn't reflect production.**
+- `npm run load [-- --users 100 --duration 60 --gap 10 --screen 6 --mode visible|all]`: load test against the running emulators. Simulated bidders bid through `placeBid`, and the script counts billed reads and projects the daily budget.
+  - `visible` (the default) mimics the app: catalog, plus live listeners for the cards on screen, favourites and own bids, with scrolling.
+  - `all` is the old listen-to-everything strategy, kept for comparison.
+  - **Emulator latency grows with the number of listeners and doesn't reflect production.**
+- `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
 
@@ -36,13 +40,18 @@ items/{item-NNN}        { order, title, subtitle, category, condition, specs[{na
                           currency, startingPrice, endTime, minIncrement?, maxIncrement?,
                           currentAmount, highBidderUid, bidCount, lastBidAt }
 items/{id}/bids/{n}     { amount, uid, createdAt }   n = bidCount as an unpadded string; readable by owner or admin only
+catalog/items           { items: { 'item-NNN': { order, title, ..., images, startingPrice, endTime, increments? } } }
+                        display data for all items in ONE doc (lib/catalog.js); read: signed-in, write: admin.
+                        Rebuilt by every import; endTime is kept in sync by extend/set-end (not by anti-snipe extensions).
 users/{uid}             { name, email, createdAt, lastSeen }       owner and admin
 admins/{uid}            {}   created by hand in the Firebase console; no client writes
 ```
 
 - **Bid:** `src/lib/bids.js` `placeBid()` runs a transaction that updates the item and creates `bids/{n}`. The rules cross-check both documents, so neither can be written without the other.
   - If someone else's bid commits first, the rules deny ours with `permission-denied`, and the SDK does **not** retry that.
-  - `placeBid` then re-reads the item once and throws `BidError('outbid')` with the new minimum. `bidErrorMessage()` maps everything else.
+  - `placeBid` then re-reads the item from the **server** (`getDocFromServer`; a live listener's cache may lag) and throws `BidError('outbid')` with the new minimum.
+  - If the item is unchanged, the denial was transient, and it retries once. The emulator's locking produces these when two bids on the same item overlap.
+  - `bidErrorMessage()` maps everything else.
 - **Anti-sniping:** effective end = `max(endTime, lastBidAt + antiSnipeSeconds)`. `lastBidAt` must be `request.time`, so the client can't fake the clock.
 - **Increments:** first bid ≥ `currentAmount` (the starting price). Every later bid ≥ `currentAmount + minIncrement` and ≤ `currentAmount + maxIncrement`. Values set on the item override `settings/auction`.
 - **Amounts are integers.** Rules check `is int`. Money is never stored as a float.
@@ -51,7 +60,18 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 ## Client structure
 
-- `stores/auction.js`: listeners on settings, items (ordered by `order`) and the user's own bids (`collectionGroup` query on `uid`). They start and stop with sign-in, and **detach after the tab has been hidden for 3 minutes**, reattaching when it's visible again.
+- `stores/auction.js` controls the read budget:
+  - It listens to `settings/auction`, the **catalog doc** (1 read per page load) and the user's own bids (`collectionGroup` on `uid`).
+  - Live `items/{id}` docs are watched per item via `watchItem(id, reason)`, reference-counted per reason: `visible` (the IntersectionObserver in `HomeView`, 400px margin), `mine` (items bid on) and `open` (`BidDialog`).
+  - A released item lingers for 20 s before detaching.
+  - `itemsById` merges the catalog with the live docs; `item.live === false` means there's no price yet (`pendingView`, skeleton card).
+  - Everything detaches after the tab has been hidden for 3 minutes.
+- **Tabs and reloads** (measured in headless Chrome):
+  - With `persistentMultipleTabManager`, the tabs of one browser share **one** Firestore connection. Extra tabs and reloads while another tab is open cost 0 new listens. When the tab that owns the connection closes or reloads, another tab takes over and re-listens once.
+  - The emulator never issues resume tokens, so we can't verify that production bills reloads only for changes. The design assumes it doesn't.
+  - `lib/loadGuard.js` counts page loads in localStorage, shared across tabs. From the 3rd load within a minute, the store shows **cached data only** (`cached*` helpers, no reads) for 15, 30, then 60 s before listening. The header indicator (`auction.connection`) and a banner tell people refreshing isn't needed.
+  - `stores/auth.js` caches the profile sync and admin check per user for 30 minutes (localStorage), saving 2 reads and 1 write per reload. Sign-out clears the cache; the rules still enforce registration and admin rights.
+- The admin page does **not** use the per-item watches. `AdminView` keeps its own `subscribeItems` listener on the whole collection, because there are only a few admins.
 - `firebase.js` uses `persistentLocalCache`. A listener that reattaches within 30 minutes is billed only for the items that changed.
 - `HomeView.vue` renders the grid with filters (All/Open/My bids/Outbid), search, sort, and a single `useNow()` ticker. The open item is kept in the URL (`#/?item=item-007`).
 - `AdminView.vue` (`#/admin`, route-guarded) is built from `components/admin/*` on top of `lib/admin.js`. The library functions take `db` so the emulator tests use them directly.
@@ -64,11 +84,15 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 ## Free-tier budget (the main risk is reads, not cost)
 
-- Spark allows 50k reads/day.
-  - A fresh load costs about 46 reads (44 items + settings + own bids). A reload within 30 minutes costs only the changed docs.
-  - Every bid costs 1 read per attached listener.
-- **Measured** (`npm run load`, 100 bidders): 84 fan-out reads per accepted bid with 100 listeners, i.e. about 1 per listener. Projections: 400 fresh loads + 600 bids × 30 average watchers ≈ 38k; × 60 watchers ≈ 56k, **over the quota**.
-- Mitigations: detach listeners on hidden tabs; items are readable only when signed in; the only `bids` listener is the user's own; App Check is optional.
+- Spark allows 50k reads/day. A bid costs 1 read for each listener on *that item*, plus ~4 (transaction and rules lookups).
+- **Measured** (`npm run load`, 100 bidders online, 44 items):
+
+  | | per page load | fan-out per bid | 400 loads + 1,000 bids, 60 online |
+  |---|---|---|---|
+  | `--mode all` (old: everyone watches everything) | 44 | 83 | ~71k ❌ |
+  | `--mode visible` (the app now) | ~9 | ~21–25 | ~21k ✅ |
+
+- Other mitigations: detach on hidden tabs; the persistent cache (re-attaching within 30 minutes bills only changes); items are readable only when signed in; the only `bids` listener is the user's own; App Check is optional.
 - The quota resets at midnight US Pacific time. Schedule the auction after the reset.
 
 ## Milestones
@@ -83,3 +107,5 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
    - Offline banner, and bidding disabled while offline (`composables/useOnline.js`).
    - Load test.
    - README: setup, checklist, day-of runbook, budget.
+8. ✅ Tabs/reload protection: shared connection across tabs (verified), reload cooldown served from cache, profile/admin check cached for 30 minutes, "Live" indicator.
+7. ✅ Read budget (option B): catalog doc plus per-item live listeners for visible, bid-on and open items. About 3× less bid fan-out and about 5× cheaper page loads, measured with `npm run load`. Retry on transient denials; `npm run check` for integrity.

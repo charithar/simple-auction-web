@@ -1,9 +1,10 @@
 import {
-  collection, collectionGroup, deleteField, doc, getDoc, getDocs, orderBy, query, setDoc, Timestamp, updateDoc,
+  collection, collectionGroup, deleteField, doc, getDoc, getDocs, orderBy, query, setDoc, Timestamp,
   writeBatch,
 } from 'firebase/firestore'
 import { newItemDoc } from './importItems.js'
 import { effectiveEnd, toMillis } from './auction.js'
+import { catalogRef, catalogDoc, CATALOG_FIELDS } from './catalog.js'
 
 // Fields an import may change on an existing item. Bid state
 // (currentAmount, bidCount, highBidderUid, lastBidAt) is never touched,
@@ -20,9 +21,10 @@ const same = (a, b) => {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 }
 
-// Compares a parsed auction file with the items currently in Firestore.
+// Compares a parsed auction file with the items (and catalog) currently in Firestore.
 // Pure: returns what applyImport() would do, for preview.
-export function planImport(parsed, existingItems) {
+// existingCatalog: catalog entries ([{ id, ... }], see catalogItems) or null if none yet.
+export function planImport(parsed, existingItems, existingCatalog = null) {
   const existing = new Map(existingItems.map((it) => [it.id, it]))
   const creates = []
   const updates = []
@@ -48,11 +50,20 @@ export function planImport(parsed, existingItems) {
   }
 
   const fileIds = new Set(parsed.items.map((it) => it.id))
-  const missing = existingItems
-    .filter((it) => !fileIds.has(it.id))
-    .map((it) => ({ id: it.id, title: it.title, hasBids: it.bidCount > 0 }))
+  const missingDocs = existingItems.filter((it) => !fileIds.has(it.id))
+  const missing = missingDocs.map((it) => ({ id: it.id, title: it.title, hasBids: it.bidCount > 0 }))
 
-  return { settings: parsed.settings, creates, updates, unchanged, missing }
+  // Does the catalog already describe exactly these items? (Keeps a catalog-only
+  // repair possible, e.g. the first import after adding the catalog.)
+  const current = new Map((existingCatalog ?? []).map((e) => [e.id, e]))
+  const expected = [...parsed.items, ...missingDocs]
+  const catalogStale = !existingCatalog || current.size !== expected.length ||
+    expected.some((it) => {
+      const e = current.get(it.id)
+      return !e || CATALOG_FIELDS.some((f) => !same(it[f], e[f]))
+    })
+
+  return { settings: parsed.settings, items: parsed.items, creates, updates, unchanged, missing, missingDocs, catalogStale }
 }
 
 // Writes an import plan. Items with bids are never deleted.
@@ -81,9 +92,11 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
     ops.push((b) => b.update(doc(db, 'items', item.id), patch))
   }
   let removed = 0
+  const removedIds = new Set()
   if (removeMissing) {
     for (const m of plan.missing.filter((x) => !x.hasBids)) {
       ops.push((b) => b.delete(doc(db, 'items', m.id)))
+      removedIds.add(m.id)
       removed++
     }
   }
@@ -95,19 +108,28 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
     ops.slice(i, i + 450).forEach((op) => op(batch))
     await batch.commit()
   }
+  // Rebuild the catalog from the file plus any kept items that aren't in it.
+  await setDoc(catalogRef(db), catalogDoc([...plan.items, ...plan.missingDocs.filter((d) => !removedIds.has(d.id))]))
   return { created: plan.creates.length, updated: plan.updates.length, removed }
 }
 
 export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction'), patch, { merge: true })
 
+// Writes a new closing time to the item and its catalog entry together.
+function writeEnd(db, itemId, endTime) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'items', itemId), { endTime })
+  batch.set(catalogRef(db), { items: { [itemId]: { endTime } } }, { merge: true })
+  return batch.commit()
+}
+
 // Pushes the item's closing time to max(effective end, now) + ms.
 export function extendItem(db, item, settings, ms, now = Date.now()) {
   const base = Math.max(effectiveEnd(item, settings), now)
-  return updateDoc(doc(db, 'items', item.id), { endTime: Timestamp.fromMillis(base + ms) })
+  return writeEnd(db, item.id, Timestamp.fromMillis(base + ms))
 }
 
-export const setItemEnd = (db, itemId, date) =>
-  updateDoc(doc(db, 'items', itemId), { endTime: Timestamp.fromDate(date) })
+export const setItemEnd = (db, itemId, date) => writeEnd(db, itemId, Timestamp.fromDate(date))
 
 // Deletes all bids on an item and restores its starting price.
 // Only safe while bidding is paused: a bid landing mid-reset would leave an

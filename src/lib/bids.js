@@ -1,4 +1,4 @@
-import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore'
+import { doc, getDocFromServer, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { validateBid, minNextBid, formatMoney } from './auction.js'
 
 export class BidError extends Error {
@@ -29,16 +29,21 @@ export function bidErrorMessage(e) {
 // Places a bid atomically: updates the item and creates items/{id}/bids/{n}.
 // If another bid commits between our read and our write, the rules evaluate
 // against the newer item and deny ours (permission-denied, which the SDK does
-// not retry). We then re-read once and report it as 'outbid' with the new minimum.
+// not retry). We then re-read and report it as 'outbid' with the new minimum.
+// A denial while the item is unchanged means a transient failure during a
+// simultaneous bid (seen with the emulator's locking); we retry once.
 // `now` should be the estimated server time (see useNow).
 export async function placeBid(db, { itemId, uid, amount, settings, now = Date.now() }) {
   const itemRef = doc(db, 'items', itemId)
-  let seen = null
-  try {
-    return await bidTransaction(db, itemRef, { itemId, uid, amount, settings, now }, (item) => (seen = item))
-  } catch (e) {
-    if (e.code === 'permission-denied' && seen) {
-      const fresh = (await getDoc(itemRef)).data()
+  for (let attempt = 1; ; attempt++) {
+    let seen = null
+    try {
+      return await bidTransaction(db, itemRef, { itemId, uid, amount, settings, now }, (item) => (seen = item))
+    } catch (e) {
+      if (e.code !== 'permission-denied' || !seen) throw e
+      // From the server: with a live listener on this item, getDoc() may answer
+      // from a cache that hasn't received the competing bid yet.
+      const fresh = (await getDocFromServer(itemRef)).data()
       if (fresh && fresh.bidCount !== seen.bidCount) {
         throw new BidError(
           'outbid',
@@ -46,8 +51,9 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
             `the minimum bid is ${formatMoney(fresh.currency, minNextBid(fresh, settings))}.`,
         )
       }
+      if (attempt >= 2) throw e
+      await new Promise((r) => setTimeout(r, 100 + Math.random() * 300))
     }
-    throw e
   }
 }
 

@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { db } from '../firebase.js'
 import { formatMoney, increments } from '../lib/auction.js'
 import { placeBid, bidErrorMessage, BidError } from '../lib/bids.js'
-import { itemView } from '../lib/itemView.js'
+import { viewFor } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOnline } from '../composables/useOnline.js'
@@ -29,7 +29,7 @@ const message = ref(null) // { kind: 'error' | 'success', text }
 const item = computed(() => (props.itemId ? auction.itemsById.get(props.itemId) : null))
 const view = computed(() =>
   item.value && auction.settings
-    ? itemView(item.value, {
+    ? viewFor(item.value, {
         settings: auction.settings,
         uid: auth.user?.uid,
         myBidItemIds: auction.myBidItemIds,
@@ -57,11 +57,17 @@ const canSubmit = computed(() =>
 
 const money = (v) => formatMoney(item.value?.currency, v)
 
+// Keep the open item live even if its card isn't on screen (e.g. opened from a link).
+let releaseWatch = null
+onUnmounted(() => releaseWatch?.())
+
 watch(
   () => props.itemId,
   async (id) => {
     message.value = null
     imageIndex.value = 0
+    releaseWatch?.()
+    releaseWatch = id ? auction.watchItem(id, 'open') : null
     if (id) {
       amountText.value = view.value ? String(view.value.minBid) : ''
       await nextTick()
@@ -76,7 +82,9 @@ watch(
 watch(
   () => view.value?.minBid,
   (min, old) => {
-    if (min != null && old != null && min !== old && (amount.value == null || amount.value < min)) {
+    if (min == null) return
+    // First live data after opening: prefill. Later: raise a now-too-low amount.
+    if (old == null ? amountText.value === '' : min !== old && (amount.value == null || amount.value < min)) {
       amountText.value = String(min)
     }
   },
@@ -159,11 +167,12 @@ async function submit() {
 
         <div class="rounded-lg bg-slate-50 p-4">
           <div class="flex items-end justify-between gap-2">
-            <div>
+            <div v-if="view.live">
               <div class="text-xs text-slate-500">{{ item.bidCount === 0 ? 'Starting price' : 'Current bid' }}</div>
               <div class="text-2xl font-bold tabular-nums">{{ money(item.currentAmount) }}</div>
               <div class="text-xs text-slate-500">{{ item.bidCount }} bid{{ item.bidCount === 1 ? '' : 's' }}</div>
             </div>
+            <div v-else class="text-sm text-slate-500">Loading current price…</div>
             <TimeLeft :view="view" class="text-right text-sm" />
           </div>
 
@@ -205,7 +214,7 @@ async function submit() {
             <p v-if="amountProblem" class="text-sm text-rose-600">{{ amountProblem }}</p>
             <p v-if="!online" class="text-sm text-amber-800">You're offline. Reconnect to place a bid.</p>
           </form>
-          <p v-else class="mt-3 text-sm text-slate-600">
+          <p v-else-if="view.live" class="mt-3 text-sm text-slate-600">
             {{ view.ended ? 'Bidding on this item has closed.' : 'Bidding is currently paused.' }}
           </p>
 

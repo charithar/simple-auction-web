@@ -46,11 +46,15 @@ const ring = computed(() => ({
       <p v-if="item.subtitle" class="text-xs text-slate-400">{{ item.subtitle }}</p>
 
       <div class="mt-auto flex flex-wrap items-end justify-between gap-x-2 gap-y-1 pt-2">
-        <div>
+        <div v-if="view.live">
           <div class="text-lg font-bold whitespace-nowrap tabular-nums">{{ formatMoney(item.currency, item.currentAmount) }}</div>
           <div class="text-xs text-slate-500">
             {{ item.bidCount === 0 ? 'Starting price' : `${item.bidCount} bid${item.bidCount === 1 ? '' : 's'}` }}
           </div>
+        </div>
+        <div v-else aria-label="Loading price">
+          <div class="my-1 h-5 w-24 animate-pulse rounded bg-slate-200"></div>
+          <div class="h-3 w-12 animate-pulse rounded bg-slate-100"></div>
         </div>
         <TimeLeft :view="view" class="text-sm whitespace-nowrap" />
       </div>

@@ -42,7 +42,7 @@ Re-run it whenever `firestore.rules` or `firestore.indexes.json` change. **Witho
 1. Open the site and **sign in** once.
 2. Firebase console → **Authentication → Users**: copy your **User UID**.
 3. **Firestore → Start collection** `admins` → document ID = *your UID* → no fields needed → Save.
-4. Reload the site. An **Admin** button appears.
+4. **Sign out and back in.** An **Admin** button appears. The app remembers each user's admin status for 30 minutes, and signing out refreshes it.
 
 Only accounts listed in `admins` can import items, change settings or see bidder names. Nobody can add themselves from the app.
 
@@ -114,15 +114,27 @@ items:
 
 Spark allows **50,000 reads and 20,000 writes per day**. Writes are no concern: a bid is 2 writes. Reads are the constraint. When the quota runs out, the site stops updating until the daily reset. There's no bill, but the auction stalls.
 
+To keep reads low, the app loads all item details from **one** catalog document. It only keeps live prices for the items on your screen, the items you've bid on and the item you have open. A bid therefore only costs reads for the people actually looking at that item.
+
 The load test (`npm run load`: 100 simulated bidders, real rules, emulator) measured:
 
 | What | Reads |
 |---|---|
-| Opening the site fresh | ~46 (one per item + settings + your bids) |
-| Re-opening within 30 min | only the items that changed (local cache) |
-| **Each bid** | **≈ 1 per person with the site open** + ~4 |
+| Opening the site fresh | ~9 (catalog + the cards on screen + settings) |
+| Re-opening within 30 min | only what changed (local cache) |
+| **Each bid** | **≈ 1 per person looking at that item** (~21–25 with 100 people online) + ~4 |
 
-For example, 400 fresh page loads + 600 bids with 30 people watching on average ≈ 38k reads. The same bids with 60 people watching on average ≈ 56k, **over the quota**. The app detaches from Firestore when a tab has been hidden for 3 minutes (phones locked, other apps), so "watching" counts only people actively looking at the page. If the Usage graph approaches the limit, pausing bidding briefly does **not** help; the reads come from viewers, not bidders.
+| Day (44 items) | Reads |
+|---|---|
+| 400 page loads, 1,000 bids, 60 people online on average | ~21k ✅ |
+| 600 page loads, 1,500 bids, 100 people online all day | ~44k ✅ (close to the limit) |
+
+**Multiple tabs and refreshing:**
+- The tabs of one browser share a single connection, so extra tabs cost nothing.
+- Refreshing is throttled. From the 3rd page load within a minute, the page shows the last known prices from the browser's cache and reconnects after 15, 30, then 60 seconds, with a "No need to refresh" banner. Someone hitting refresh repeatedly costs at most about one full load per minute.
+- The header shows a green **Live** dot, so people can see prices update by themselves.
+
+The app also disconnects when a tab has been hidden for 3 minutes (phones locked, other apps). If the Usage graph approaches the limit, pausing bidding does **not** help; the reads come from viewers, not bidders.
 
 ---
 
@@ -142,7 +154,8 @@ npm run seed -- --admin-only you@example.com   # after signing in once: make tha
 npm test                          # unit tests
 npm run test:docker               # lint + unit + security-rules tests in Docker
 npm run smoke -- --users 20       # end-to-end checks against the running emulators
-npm run load -- --users 100       # load test + read-budget projection
+npm run load -- --users 100       # load test + read-budget projection (--mode all to compare)
+npm run check                     # emulator data integrity (bids vs. item state)
 ```
 
 `CLAUDE.md` describes the architecture, data model and conventions in detail.

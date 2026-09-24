@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { itemView } from '../../src/lib/itemView.js'
+import { itemView, viewFor } from '../../src/lib/itemView.js'
 
 const NOW = 1_000_000_000_000
 const ts = (ms) => ({ toMillis: () => ms })
@@ -30,6 +30,11 @@ describe('itemView', () => {
   it('flags anti-snipe extensions', () => {
     const v = view(item({ endTime: ts(NOW - 1000), lastBidAt: ts(NOW - 30_000) }))
     expect(v).toMatchObject({ extended: true, ended: false, remaining: 90_000 })
+  })
+  it('catalog-only items get a pending view from the scheduled end', () => {
+    const v = viewFor({ id: 'item-002', endTime: ts(NOW + 60_000), live: false }, { settings, now: NOW })
+    expect(v).toMatchObject({ live: false, status: 'closing', canBid: false, standing: null, remaining: 60_000 })
+    expect(viewFor({ ...item(), live: true }, { settings, uid: 'alice', myBidItemIds: new Set(), now: NOW }).live).toBe(true)
   })
   it('cannot bid when bidding is closed', () => {
     expect(view(item(), { settings: { ...settings, biddingOpen: false } }).canBid).toBe(false)

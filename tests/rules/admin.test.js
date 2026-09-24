@@ -93,6 +93,53 @@ describe('import', () => {
   })
 })
 
+describe('catalog', () => {
+  const getCatalog = (fs) => getDoc(doc(fs, 'catalog/items')).then((s) => s.data())
+
+  it('import writes one catalog doc with display data for every item', async () => {
+    await importAs('admin', file(THREE))
+    const cat = await raw(getCatalog)
+    expect(Object.keys(cat.items)).toEqual(['item-001', 'item-002', 'item-003'])
+    expect(cat.items['item-001']).toMatchObject({ order: 1, title: 'One', startingPrice: 100, specs: [{ name: 'CPU', value: 'i5' }] })
+    expect(cat.items['item-001']).not.toHaveProperty('bidCount')
+  })
+
+  it('removed items leave the catalog; kept items without file entries stay', async () => {
+    await importAs('admin', file(THREE))
+    await importAs('admin', file('  - { id: 1, title: One, startingPrice: 100, specs: { CPU: i5 } }'), { removeMissing: false })
+    expect(Object.keys((await raw(getCatalog)).items)).toEqual(['item-001', 'item-002', 'item-003'])
+    await importAs('admin', file('  - { id: 1, title: One, startingPrice: 100, specs: { CPU: i5 } }'), { removeMissing: true })
+    expect(Object.keys((await raw(getCatalog)).items)).toEqual(['item-001'])
+  })
+
+  it('extend updates the item and its catalog entry together', async () => {
+    await importAs('admin', file(THREE))
+    const settings = await raw(getSettings)
+    const [item] = await raw(listItems)
+    await extendItem(db('admin'), item, settings, 10 * 60_000)
+    const [after] = await raw(listItems)
+    const cat = await raw(getCatalog)
+    expect(cat.items['item-001'].endTime.toMillis()).toBe(after.endTime.toMillis())
+    expect(cat.items['item-001'].title).toBe('One') // merge kept the other fields
+  })
+
+  it('signed-in users can read it, guests and non-admin writers cannot', async () => {
+    await importAs('admin', file(THREE))
+    await assertSucceeds(getDoc(doc(db('alice'), 'catalog/items')))
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'catalog/items')))
+    await assertFails(setDoc(doc(db('alice'), 'catalog/items'), { items: {} }))
+  })
+
+  it('plan flags a missing or stale catalog even when items are unchanged', async () => {
+    await importAs('admin', file(THREE))
+    const items = await raw(listItems)
+    expect(planImport(file(THREE), items, null).catalogStale).toBe(true)
+    const { catalogItems } = await import('../../src/lib/catalog.js')
+    const entries = catalogItems(await raw(getCatalog))
+    expect(planImport(file(THREE), items, entries).catalogStale).toBe(false)
+  })
+})
+
 describe('item controls', () => {
   beforeEach(async () => {
     await importAs('admin', file(THREE))

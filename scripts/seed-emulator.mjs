@@ -14,6 +14,7 @@ import { parseArgs } from 'node:util'
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing'
 import { collection, doc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
 import { parseAuctionFile, shiftEndTimes, newItemDoc, parseDuration } from '../src/lib/importItems.js'
+import { catalogRef, catalogDoc } from '../src/lib/catalog.js'
 
 const PROJECT = 'demo-auction'
 const FIRESTORE = { host: '127.0.0.1', port: 8080 }
@@ -74,6 +75,7 @@ try {
     for (const item of scheduled) {
       batch.set(doc(db, 'items', item.id), { ...newItemDoc(item), endTime: Timestamp.fromDate(item.endTime) })
     }
+    batch.set(catalogRef(db), catalogDoc(scheduled))
     await batch.commit()
 
     if (args.admin) {

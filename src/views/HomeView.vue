@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
-import { itemView } from '../lib/itemView.js'
+import { viewFor } from '../lib/itemView.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
 
@@ -28,8 +28,42 @@ const closeItem = () => {
 const rows = computed(() => {
   if (!auction.settings) return []
   const ctx = { settings: auction.settings, uid: auth.user?.uid, myBidItemIds: auction.myBidItemIds, now: now.value }
-  return auction.items.map((item) => ({ item, view: itemView(item, ctx) }))
+  return auction.items.map((item) => ({ item, view: viewFor(item, ctx) }))
 })
+
+// Live prices only for cards on (or near) the screen. See stores/auction.js.
+const releases = new Map() // element -> release()
+const observer = new IntersectionObserver(
+  (entries) => {
+    for (const e of entries) {
+      const id = e.target.dataset.itemId
+      if (e.isIntersecting && !releases.has(e.target)) releases.set(e.target, auction.watchItem(id, 'visible'))
+      if (!e.isIntersecting && releases.has(e.target)) {
+        releases.get(e.target)()
+        releases.delete(e.target)
+      }
+    }
+  },
+  { rootMargin: '400px 0px' }, // start loading a little before a card scrolls in
+)
+const vWatchVisible = {
+  mounted(el, { value }) {
+    el.dataset.itemId = value
+    observer.observe(el)
+  },
+  unmounted(el) {
+    observer.unobserve(el)
+    releases.get(el)?.()
+    releases.delete(el)
+  },
+}
+onUnmounted(() => {
+  observer.disconnect()
+  releases.forEach((release) => release())
+  releases.clear()
+})
+
+const price = (item) => item.currentAmount ?? item.startingPrice
 
 const counts = computed(() => {
   const c = { mine: 0, winning: 0, outbid: 0 }
@@ -54,8 +88,8 @@ const visible = computed(() => {
     return haystack.includes(q)
   })
   if (sort.value === 'ending') list = [...list].sort((a, b) => (a.view.ended - b.view.ended) || a.view.end - b.view.end)
-  if (sort.value === 'price-asc') list = [...list].sort((a, b) => a.item.currentAmount - b.item.currentAmount)
-  if (sort.value === 'price-desc') list = [...list].sort((a, b) => b.item.currentAmount - a.item.currentAmount)
+  if (sort.value === 'price-asc') list = [...list].sort((a, b) => price(a.item) - price(b.item))
+  if (sort.value === 'price-desc') list = [...list].sort((a, b) => price(b.item) - price(a.item))
   return list
 })
 
@@ -88,9 +122,19 @@ const filters = computed(() => [
       {{ auction.error }}
     </div>
 
+    <div
+      v-if="auction.connection === 'cooldown'"
+      class="mb-4 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900"
+      role="status"
+    >
+      <strong>No need to refresh:</strong> prices and countdowns update by themselves.
+      Showing the last known prices; live updates resume in
+      {{ Math.max(1, Math.ceil((auction.cooldownUntil - now) / 1000)) }}s.
+    </div>
+
     <div v-if="!auction.loaded" class="py-16 text-center text-slate-500">Loading items…</div>
 
-    <div v-else-if="!auction.settings || auction.items.length === 0" class="py-16 text-center text-slate-500">
+    <div v-else-if="!auction.settings || !auction.catalog?.length" class="py-16 text-center text-slate-500">
       The auction hasn't been set up yet. Check back soon.
     </div>
 
@@ -150,7 +194,14 @@ const filters = computed(() => [
 
       <p v-if="visible.length === 0" class="py-12 text-center text-slate-500">No items match.</p>
       <div v-else class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-        <ItemCard v-for="r in visible" :key="r.item.id" :item="r.item" :view="r.view" @open="openItem" />
+        <ItemCard
+          v-for="r in visible"
+          :key="r.item.id"
+          v-watch-visible="r.item.id"
+          :item="r.item"
+          :view="r.view"
+          @open="openItem"
+        />
       </div>
 
       <BidDialog :item-id="openItemId" :now="now" @close="closeItem" />

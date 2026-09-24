@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
 import { db } from '../firebase.js'
+import { subscribeItems } from '../lib/items.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
@@ -17,6 +18,19 @@ const auction = useAuctionStore()
 const now = useNow()
 const lookupUser = createUserCache(db)
 
+// Admins watch every item live (bidders only watch what they can see).
+const items = shallowRef([])
+const itemsById = computed(() => new Map(items.value.map((it) => [it.id, it])))
+const listenError = ref('')
+let unsubscribe = null
+onMounted(() => {
+  unsubscribe = subscribeItems(db, (list) => (items.value = list), (e) => {
+    console.error(e)
+    listenError.value = 'Lost the live item feed. Reload the page.'
+  })
+})
+onUnmounted(() => unsubscribe?.())
+
 const filter = ref('all')
 const exporting = ref('')
 const exportError = ref('')
@@ -24,7 +38,7 @@ const exportError = ref('')
 const rows = computed(() => {
   if (!auction.settings) return []
   const ctx = { settings: auction.settings, uid: auth.user?.uid, myBidItemIds: new Set(), now: now.value }
-  return auction.items.map((item) => ({ item, view: itemView(item, ctx) }))
+  return items.value.map((item) => ({ item, view: itemView(item, ctx) }))
 })
 
 const stats = computed(() => {
@@ -69,8 +83,8 @@ async function exportWinners() {
   exporting.value = 'winners'
   exportError.value = ''
   try {
-    const users = await usersFor(auction.items.map((i) => i.highBidderUid))
-    downloadText(`winners_${stamp()}.csv`, winnersCsv(auction.items, auction.settings, users, now.value))
+    const users = await usersFor(items.value.map((i) => i.highBidderUid))
+    downloadText(`winners_${stamp()}.csv`, winnersCsv(items.value, auction.settings, users, now.value))
   } catch (e) {
     console.error(e)
     exportError.value = 'Export failed.'
@@ -86,7 +100,7 @@ async function exportBids() {
   try {
     const bids = await fetchAllBids(db)
     const users = await usersFor(bids.map((b) => b.uid))
-    downloadText(`bids_${stamp()}.csv`, bidsCsv(bids, auction.itemsById, users))
+    downloadText(`bids_${stamp()}.csv`, bidsCsv(bids, itemsById.value, users))
   } catch (e) {
     console.error(e)
     exportError.value = 'Export failed.'
@@ -103,7 +117,7 @@ async function exportBids() {
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          :disabled="!!exporting || !auction.items.length"
+          :disabled="!!exporting || !items.length"
           class="rounded-md bg-white px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40"
           @click="exportWinners"
         >
@@ -120,7 +134,7 @@ async function exportBids() {
         </button>
       </div>
     </div>
-    <p v-if="exportError" class="text-sm text-rose-700">{{ exportError }}</p>
+    <p v-if="exportError || listenError" class="text-sm text-rose-700">{{ exportError || listenError }}</p>
 
     <dl v-if="auction.settings" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       <div v-for="s in statCards" :key="s[0]" class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
@@ -131,10 +145,15 @@ async function exportBids() {
 
     <div class="grid gap-4 lg:grid-cols-2">
       <AdminControls v-if="auction.settings" :settings="auction.settings" />
-      <AdminImport :items="auction.items" :settings="auction.settings" :class="{ 'lg:col-span-2': !auction.settings }" />
+      <AdminImport
+        :items="items"
+        :catalog="auction.catalog"
+        :settings="auction.settings"
+        :class="{ 'lg:col-span-2': !auction.settings }"
+      />
     </div>
 
-    <section v-if="auction.settings && auction.items.length" class="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+    <section v-if="auction.settings && items.length" class="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
       <div class="flex flex-wrap items-center justify-between gap-2 p-4">
         <h2 class="font-semibold">
           Items

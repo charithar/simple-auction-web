@@ -1,84 +1,219 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef, computed, watch } from 'vue'
 import { db } from '../firebase.js'
-import { subscribeItems, subscribeSettings, subscribeMyBidItems } from '../lib/items.js'
+import {
+  subscribeCatalog, subscribeItem, subscribeSettings, subscribeMyBidItems,
+  cachedCatalog, cachedItem, cachedSettings, cachedMyBidItems,
+} from '../lib/items.js'
+import { registerPageLoad } from '../lib/loadGuard.js'
 import { useAuthStore } from './auth.js'
 
-// Detach listeners once the tab has been hidden this long. Shorter saves the
-// per-bid fan-out reads; the persistent cache makes re-attaching within 30
-// minutes cheap (only changed items are billed).
+// Read budget design (see CLAUDE.md):
+// - catalog/items: display data for all items in ONE doc -> 1 read per page load.
+// - items/{id}: live price/bids, listened to only while the item is visible,
+//   bid on by this user, or open in the dialog. A bid then only costs reads
+//   for the people actually looking at that item.
+// - Everything detaches after the tab has been hidden for a while; the
+//   persistent cache makes re-attaching within 30 minutes cheap.
+// - Rapid reloads (lib/loadGuard.js): from the 3rd page load within a minute the
+//   store first shows cached data and only goes live after a cooldown, so
+//   refresh-spamming can't multiply reads.
 const HIDDEN_GRACE_MS = 3 * 60_000
+const LINGER_MS = 20_000 // keep a scrolled-away item live briefly to avoid churn
 
 export const useAuctionStore = defineStore('auction', () => {
   const auth = useAuthStore()
 
-  const items = shallowRef([])
+  const catalog = shallowRef(null) // [{ id, order, title, ..., endTime }] or null (not set up)
+  const live = shallowRef(new Map()) // id -> live item doc
   const settings = ref(null)
   const myBidItemIds = shallowRef(new Set())
   const loaded = ref(false)
   const paused = ref(false)
   const error = ref('')
 
-  const itemsById = computed(() => new Map(items.value.map((it) => [it.id, it])))
+  // Reload cooldown for this page load (0 = go live immediately).
+  const { cooldownMs } = registerPageLoad()
+  const cooldownUntil = ref(cooldownMs ? Date.now() + cooldownMs : 0)
+  const cooling = ref(cooldownMs > 0)
+  let cooldownTimer = null
 
-  let unsubs = []
-  let hiddenTimer = null
-  let started = false
-
-  function attach(uid) {
-    detach()
-    const onError = (e) => {
-      console.error('Firestore listener failed', e)
-      error.value = e.code === 'resource-exhausted'
-        ? 'The auction is temporarily over capacity. Please try again later.'
-        : 'Lost connection to the auction. Reload the page to retry.'
+  // Catalog entries merged with live docs; `live` tells whether the price is current.
+  const itemsById = computed(() => {
+    const out = new Map()
+    for (const c of catalog.value ?? []) {
+      const l = live.value.get(c.id)
+      out.set(c.id, l ? { ...c, ...l, live: true } : { ...c, live: false })
     }
-    unsubs = [
+    return out
+  })
+  const items = computed(() => [...itemsById.value.values()])
+
+  // ---- per-item watches ----
+  const watches = new Map() // id -> { reasons: Map<reason, count>, unsub, lingerTimer }
+
+  const onError = (e) => {
+    console.error('Firestore listener failed', e)
+    error.value = e.code === 'resource-exhausted'
+      ? 'The auction is temporarily over capacity. Please try again later.'
+      : 'Lost connection to the auction. Reload the page to retry.'
+  }
+
+  function setLive(id, doc) {
+    const next = new Map(live.value)
+    if (doc) next.set(id, doc)
+    else next.delete(id)
+    live.value = next
+  }
+
+  function attachItem(id, w) {
+    if (w.unsub || paused.value || !auth.user) return
+    if (cooling.value) {
+      // Cached copy only (free); the real listener attaches when the cooldown ends.
+      cachedItem(db, id).then((doc) => {
+        if (cooling.value && watches.has(id) && doc) setLive(id, doc)
+      })
+      return
+    }
+    w.unsub = subscribeItem(db, id, (doc) => setLive(id, doc), onError)
+  }
+
+  function detachItem(id, w) {
+    w.unsub?.()
+    w.unsub = null
+    if (live.value.has(id)) {
+      const next = new Map(live.value)
+      next.delete(id)
+      live.value = next
+    }
+  }
+
+  // Returns a release function. Watches are reference-counted per reason.
+  function watchItem(id, reason) {
+    let w = watches.get(id)
+    if (!w) watches.set(id, (w = { reasons: new Map(), unsub: null, lingerTimer: null }))
+    w.reasons.set(reason, (w.reasons.get(reason) ?? 0) + 1)
+    clearTimeout(w.lingerTimer)
+    attachItem(id, w)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const n = (w.reasons.get(reason) ?? 1) - 1
+      if (n > 0) w.reasons.set(reason, n)
+      else w.reasons.delete(reason)
+      if (w.reasons.size === 0) {
+        w.lingerTimer = setTimeout(() => {
+          if (w.reasons.size === 0) {
+            detachItem(id, w)
+            watches.delete(id)
+          }
+        }, LINGER_MS)
+      }
+    }
+  }
+
+  // Items the user bid on stay live (for winning/outbid badges and filters).
+  const mineReleases = new Map()
+  watch(myBidItemIds, (ids) => {
+    for (const id of ids) if (!mineReleases.has(id)) mineReleases.set(id, watchItem(id, 'mine'))
+    for (const [id, release] of mineReleases) {
+      if (!ids.has(id)) {
+        release()
+        mineReleases.delete(id)
+      }
+    }
+  })
+
+  // ---- global listeners ----
+  let globalUnsubs = []
+
+  function attachAll(uid) {
+    detachGlobals()
+    paused.value = false
+    if (cooling.value) {
+      showCached(uid)
+      clearTimeout(cooldownTimer)
+      cooldownTimer = setTimeout(() => {
+        cooling.value = false
+        cooldownUntil.value = 0
+        if (auth.user?.uid === uid && !paused.value) attachAll(uid)
+      }, Math.max(0, cooldownUntil.value - Date.now()))
+      return
+    }
+    globalUnsubs = [
       subscribeSettings(db, (s) => (settings.value = s), onError),
-      subscribeItems(db, (list) => {
-        items.value = list
+      subscribeCatalog(db, (list) => {
+        catalog.value = list
         loaded.value = true
         error.value = ''
       }, onError),
       subscribeMyBidItems(db, uid, (ids) => (myBidItemIds.value = ids), onError),
     ]
     paused.value = false
+    for (const [id, w] of watches) attachItem(id, w)
   }
 
-  function detach() {
-    unsubs.forEach((u) => u())
-    unsubs = []
+  // During a reload cooldown: render whatever the local cache has (no reads).
+  async function showCached(uid) {
+    const [s, list, mine] = await Promise.all([cachedSettings(db), cachedCatalog(db), cachedMyBidItems(db, uid)])
+    if (!cooling.value) return
+    if (s) settings.value = s
+    if (list) {
+      catalog.value = list
+      loaded.value = true
+    }
+    if (mine) myBidItemIds.value = mine
+    for (const [id, w] of watches) attachItem(id, w)
+  }
+
+  function detachGlobals() {
+    globalUnsubs.forEach((u) => u())
+    globalUnsubs = []
+  }
+
+  function pauseAll() {
+    detachGlobals()
+    paused.value = true
+    for (const [id, w] of watches) detachItem(id, w)
   }
 
   function reset() {
-    detach()
-    items.value = []
+    detachGlobals()
+    for (const [id, w] of watches) {
+      clearTimeout(w.lingerTimer)
+      detachItem(id, w)
+    }
+    watches.clear()
+    mineReleases.clear()
+    catalog.value = null
+    live.value = new Map()
     settings.value = null
     myBidItemIds.value = new Set()
     loaded.value = false
+    paused.value = false
     error.value = ''
   }
 
+  let hiddenTimer = null
   function onVisibilityChange() {
     if (!auth.user) return
     if (document.visibilityState === 'hidden') {
       clearTimeout(hiddenTimer)
-      hiddenTimer = setTimeout(() => {
-        detach()
-        paused.value = true
-      }, HIDDEN_GRACE_MS)
+      hiddenTimer = setTimeout(pauseAll, HIDDEN_GRACE_MS)
     } else {
       clearTimeout(hiddenTimer)
-      if (paused.value) attach(auth.user.uid)
+      if (paused.value) attachAll(auth.user.uid)
     }
   }
 
+  let started = false
   function init() {
     if (started) return
     started = true
     watch(
       () => auth.user?.uid,
-      (uid) => (uid ? attach(uid) : reset()),
+      (uid) => (uid ? attachAll(uid) : reset()),
       { immediate: true },
     )
     document.addEventListener('visibilitychange', onVisibilityChange)
@@ -89,5 +224,12 @@ export const useAuctionStore = defineStore('auction', () => {
     if (!myBidItemIds.value.has(itemId)) myBidItemIds.value = new Set([...myBidItemIds.value, itemId])
   }
 
-  return { items, itemsById, settings, myBidItemIds, loaded, paused, error, init, noteOwnBid }
+  // For the header indicator: 'live' | 'cooldown' | 'paused' | 'connecting'.
+  const connection = computed(() =>
+    cooling.value ? 'cooldown' : paused.value ? 'paused' : loaded.value ? 'live' : 'connecting')
+
+  return {
+    catalog, items, itemsById, settings, myBidItemIds, loaded, paused, error, cooldownUntil, connection,
+    init, watchItem, noteOwnBid,
+  }
 })

@@ -7,6 +7,7 @@ import ConfirmButton from './ConfirmButton.vue'
 
 const props = defineProps({
   items: { type: Array, required: true },
+  catalog: { type: Array, default: null },
   settings: { type: Object, default: null },
 })
 
@@ -19,7 +20,7 @@ const result = ref('')
 const input = ref(null)
 
 // Recomputed against the live items, so the preview stays correct if bids arrive meanwhile.
-const plan = computed(() => (parsed.value ? planImport(parsed.value, props.items) : null))
+const plan = computed(() => (parsed.value ? planImport(parsed.value, props.items, props.catalog) : null))
 const FIELD_LABELS = { endTime: 'closing time', startingPrice: 'starting price', minIncrement: 'min increment', maxIncrement: 'max increment' }
 const fieldCounts = computed(() => {
   const counts = new Map()
@@ -32,7 +33,7 @@ const settingsChanged = computed(() =>
     ['title', 'minIncrement', 'maxIncrement', 'antiSnipeSeconds'].some((k) => (plan.value.settings[k] ?? null) !== (props.settings[k] ?? null))),
 )
 const nothingToDo = computed(() =>
-  plan.value && !settingsChanged.value && !plan.value.creates.length && !plan.value.updates.length &&
+  plan.value && !settingsChanged.value && !plan.value.catalogStale && !plan.value.creates.length && !plan.value.updates.length &&
   !(removeMissing.value && plan.value.missing.some((m) => !m.hasBids)),
 )
 
@@ -100,6 +101,9 @@ const fmtFields = (fields) => fields.map((f) => FIELD_LABELS[f] ?? f).join(', ')
         <span v-if="plan.missing.length" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-amber-900">{{ plan.missing.length }} not in file</span>
       </div>
 
+      <p v-if="plan.catalogStale && !plan.creates.length && !plan.updates.length" class="text-slate-700">
+        The bidder catalog is out of date and will be rebuilt.
+      </p>
       <p v-if="fieldCounts.length" class="text-slate-700">
         Changes: {{ fieldCounts.join(', ') }}
       </p>
