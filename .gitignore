@@ -13,3 +13,6 @@ ui-debug.log*
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# Real auction file stays local; data/auction.sample.yml is the committed example
+data/auction.yml

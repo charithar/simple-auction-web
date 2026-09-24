@@ -1,0 +1,79 @@
+# SAMPLE auction file with made-up items. The real one is data/auction.yml, which is
+# gitignored: copy this file there and edit it. Imported by the admin page
+# (and by `npm run seed` for the emulator). Format reference: src/lib/importItems.js
+
+auction:
+  title: Sample Equipment Auction
+  currency: Rs.
+  minIncrement: 250       # every bid after the first must beat the current price by at least this
+  maxIncrement: 5000      # guard against typos; remove for no cap
+  antiSnipeSeconds: 120   # a late bid keeps the item open until 2 minutes after it
+  endTime: 2026-10-31T18:00:00+05:30   # when the FIRST item closes
+  stagger: 1m             # each following item closes 1 minute later (list order)
+
+items:
+  - id: 0
+    title: HP ProBook 450 G7
+    subtitle: S/N SAMPLE0001
+    category: Laptop
+    condition: Used
+    specs:
+      CPU: Core i5
+      RAM: 16 GB
+      Storage: 256 GB M.2 SSD
+      OS: Windows 10 Pro
+    detail: HP ProBook 450 G7 i5/16GB/256GB M.2 Win 10 Pro
+    images: []
+    startingPrice: 20000
+  - id: 1
+    title: HP ProBook 450 G6
+    subtitle: S/N SAMPLE0002
+    category: Laptop
+    condition: Used - has issues
+    specs:
+      CPU: Core i5
+      RAM: 8 GB
+      Storage: 1 TB HDD
+      OS: Windows 10 Pro
+      Known issues: Some keys are not working
+    detail: HP ProBook 450 G6 i5/8GB/1TB HDD Win 10 Pro. Some keys are not working
+    images: []
+    startingPrice: 12500
+  - id: 2
+    title: HP EliteBook 840 G6
+    subtitle: S/N SAMPLE0003
+    category: Laptop
+    condition: Used
+    specs:
+      CPU: Core i5
+      RAM: 16 GB
+      Storage: 512 GB SSD
+      OS: Windows 10 Pro
+    detail: HP EliteBook 840 G6 i5 16GB 512GB SSD Win 10 Pro
+    images: []
+    startingPrice: 25000
+    minIncrement: 500     # per-item override
+  - id: 3
+    title: HP ProDesk 400 G4
+    subtitle: S/N SAMPLE0004
+    category: Desktop
+    condition: Used
+    specs:
+      CPU: Core i5
+      RAM: 8 GB
+      Storage: 500 GB SSD
+    detail: HP ProDesk 400 G4 i5 8GB 500GB SSD
+    images: []
+    startingPrice: 7500
+  - id: 4
+    title: HP 250 G7
+    subtitle: S/N SAMPLE0005
+    category: Laptop
+    condition: Not working (for parts)
+    specs:
+      CPU: Core i3
+      RAM: 8 GB
+      Known issues: Lines on the screen
+    detail: HP 250 G7 i3 8GB. Lines on the screen
+    images: []
+    startingPrice: 7000

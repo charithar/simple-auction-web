@@ -60,7 +60,7 @@ reCAPTCHA v3's free tier comfortably covers ~100 bidders. Enforcement can block 
 
 ## 2. The auction file
 
-Everything about the auction lives in [`data/auction.yml`](data/auction.yml); the format is described at the top of [`src/lib/importItems.js`](src/lib/importItems.js).
+Everything about the auction lives in `data/auction.yml`. That file is **gitignored** so the real item list never lands in the repo: start from [`data/auction.sample.yml`](data/auction.sample.yml) (`cp data/auction.sample.yml data/auction.yml`) and keep your own backup. The format is described at the top of [`src/lib/importItems.js`](src/lib/importItems.js). The site doesn't need the file to build or deploy; items reach Firestore only through the admin import.
 
 ```yaml
 auction:
@@ -147,7 +147,7 @@ npm install
 cp .env.example .env.local        # set VITE_USE_EMULATORS=true for local work
 
 npm run emulators:docker          # Auth + Firestore emulators in Docker (UI: http://127.0.0.1:4000)
-npm run seed -- --first-close 20m # load data/auction.yml into the emulator
+npm run seed -- --first-close 20m # load data/auction.yml (or the sample) into the emulator
 npm run dev                       # http://localhost:5173 — "Sign in" shows emulator test accounts
 npm run seed -- --admin-only you@example.com   # after signing in once: make that account admin
 

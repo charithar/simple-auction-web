@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Seeds the LOCAL Firestore emulator from an auction file. Never touches a real project.
 //
-//   npm run seed                                   # data/auction.yml, first item closes in 30 min
+//   npm run seed                                   # data/auction.yml (or the sample if absent), first item closes in 30 min
 //   npm run seed -- --first-close 5m               # first item closes in 5 minutes
 //   npm run seed -- --admin you@example.com        # also make that emulator user an admin
 //   npm run seed -- --closed                       # bidding switched off
@@ -9,7 +9,7 @@
 //   npm run seed -- --file other.yml
 //
 // Existing items and bids are deleted; users and admins are kept.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing'
 import { collection, doc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
@@ -22,7 +22,7 @@ const AUTH = 'http://127.0.0.1:9099'
 
 const { values: args } = parseArgs({
   options: {
-    file: { type: 'string', default: 'data/auction.yml' },
+    file: { type: 'string', default: existsSync('data/auction.yml') ? 'data/auction.yml' : 'data/auction.sample.yml' },
     'first-close': { type: 'string', default: '30m' },
     admin: { type: 'string' },
     closed: { type: 'boolean', default: false },

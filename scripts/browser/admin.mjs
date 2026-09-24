@@ -3,7 +3,7 @@
 // field following it), pause, reset, import with preview, CSV exports.
 // CHANGES EMULATOR DATA (leaves bidding paused, re-imports items). Re-run `npm run seed` afterwards.
 // Prereqs: emulators + `npm run seed` + `npm run smoke` + `npm run seed -- --admin-only smoke0@example.com` + `npm run dev`.
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, signIn, waitForText, clickText, collectConsole, checker, sleep, OUT } from './helpers.mjs'
 
@@ -12,8 +12,9 @@ const DL = join(OUT, 'downloads') // native separators: Chrome rejects mixed one
 rmSync(DL, { recursive: true, force: true })
 mkdirSync(DL, { recursive: true })
 
-// Auction file with one renamed item and one new item.
-const modified = readFileSync('data/auction.yml', 'utf8')
+// Auction file with one renamed item and one new item. Same default as `npm run seed`.
+const file = existsSync('data/auction.yml') ? 'data/auction.yml' : 'data/auction.sample.yml'
+const modified = readFileSync(file, 'utf8')
   .replace(/(- id: 1\n\s+title:) (.+)/, '$1 $2 (edited)')
   + '  - id: 99\n    title: Test Monitor\n    startingPrice: 1000\n'
 writeFileSync(`${OUT}/modified-auction.yml`, modified)

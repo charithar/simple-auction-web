@@ -16,7 +16,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 - `npm run test:rules`: Firestore rules tests on the emulator (`tests/rules`). **Requires Java 21+.** CI runs them.
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
-- `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator. It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
+- `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator (falls back to `data/auction.sample.yml` when the real file is absent). It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
 - `npm run load [-- --users 100 --duration 60 --gap 10 --screen 6 --mode visible|all]`: load test against the running emulators. Simulated bidders bid through `placeBid`, and the script counts billed reads and projects the daily budget.
   - `visible` (the default) mimics the app: catalog, plus live listeners for the cards on screen, favourites and own bids, with scrolling.
   - `all` is the old listen-to-everything strategy, kept for comparison.
@@ -31,6 +31,8 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
 
 ## Auction file (`data/auction.yml`)
+
+- **The real file is gitignored and must never be committed** (its history was purged). `data/auction.sample.yml` is the committed example; the unit test parses the sample, and `seed`/`e2e:admin` use the real file when present.
 
 The format is documented at the top of `src/lib/importItems.js` (`parseAuctionFile`):
 - The `auction:` section sets title, currency, `minIncrement`, `maxIncrement`, `antiSnipeSeconds`, `endTime` (when the first item closes) and `stagger` (each later item in list order closes this much later).

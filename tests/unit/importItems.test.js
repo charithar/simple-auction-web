@@ -102,8 +102,8 @@ items: [{ id: 1, title: A, startingPrice: 1 }]`)
     expect(parseAuctionFile('a: [').errors[0]).toMatch(/not valid YAML/)
   })
 
-  it('parses the real data/auction.yml', () => {
-    const { items, errors } = parseAuctionFile(readFileSync('data/auction.yml', 'utf8'))
+  it('parses the sample data/auction.sample.yml', () => {
+    const { items, errors } = parseAuctionFile(readFileSync('data/auction.sample.yml', 'utf8'))
     expect(errors).toEqual([])
     expect(items.length).toBeGreaterThan(0)
   })
