@@ -2,10 +2,19 @@
 import { watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth.js'
+import { useAuctionStore } from './stores/auction.js'
 import NavBar from './components/NavBar.vue'
 
 const auth = useAuthStore()
 auth.init()
+const auction = useAuctionStore()
+auction.init()
+
+watch(
+  () => auction.settings?.title,
+  (title) => (document.title = title || 'Auction'),
+  { immediate: true },
+)
 
 // Leave admin pages as soon as admin rights go away (e.g. sign-out).
 const route = useRoute()

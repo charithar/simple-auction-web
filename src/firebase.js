@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth'
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
+import {
+  initializeFirestore, connectFirestoreEmulator, persistentLocalCache, persistentMultipleTabManager,
+} from 'firebase/firestore'
 
 const env = import.meta.env
 const useEmulators = env.VITE_USE_EMULATORS === 'true'
@@ -13,7 +15,12 @@ const app = initializeApp({
 })
 
 export const auth = getAuth(app)
-export const db = getFirestore(app)
+// Persistent cache: when a listener re-attaches within 30 minutes (page reload,
+// tab woken up), Firestore resumes from the cached state and bills only the
+// documents that changed instead of all items. Key to staying in the free quota.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+})
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 
