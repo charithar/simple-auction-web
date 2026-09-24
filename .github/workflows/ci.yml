@@ -46,6 +46,7 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
           VITE_APPCHECK_SITE_KEY: ${{ vars.VITE_APPCHECK_SITE_KEY }}
+          VITE_ALLOWED_DOMAINS: ${{ vars.VITE_ALLOWED_DOMAINS }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

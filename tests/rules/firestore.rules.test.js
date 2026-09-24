@@ -9,6 +9,7 @@ import {
   collectionGroup, query, where, getDocs, setLogLevel,
 } from 'firebase/firestore'
 import { placeBid } from '../../src/lib/bids.js'
+import { renderRules, RULES_TEMPLATE } from '../../scripts/build-rules.mjs'
 
 const SETTINGS = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
 const HOUR = 3_600_000
@@ -66,7 +67,8 @@ beforeAll(async () => {
   setLogLevel('silent')
   env = await initializeTestEnvironment({
     projectId: 'demo-auction',
-    firestore: { rules: readFileSync('firestore.rules', 'utf8') },
+    // Rendered like a deploy, with a placeholder domain (the real one is only in the environment).
+    firestore: { rules: renderRules(readFileSync(RULES_TEMPLATE, 'utf8'), ['allowed.test']) },
   })
 })
 
@@ -91,6 +93,40 @@ describe('reads', () => {
   it('signed-in users can read items and settings', async () => {
     await assertSucceeds(getDoc(doc(db('alice'), 'items/item1')))
     await assertSucceeds(getDoc(doc(db('alice'), 'settings/auction')))
+  })
+})
+
+describe('allowed domains', () => {
+  const as = (uid, email, over = {}) => env.authenticatedContext(uid, {
+    email, email_verified: true, firebase: { sign_in_provider: 'google.com' }, ...over,
+  }).firestore()
+  const profile = (email) => ({ name: 'Dan', email, createdAt: serverTimestamp(), lastSeen: serverTimestamp() })
+
+  it('accounts on the allowed domain can read and register', async () => {
+    const fs = as('dan', 'dan@allowed.test')
+    await assertSucceeds(getDoc(doc(fs, 'items/item1')))
+    await assertSucceeds(setDoc(doc(fs, 'users/dan'), profile('dan@allowed.test')))
+  })
+  it('the domain match ignores case', () =>
+    assertSucceeds(getDoc(doc(as('dan', 'Dan@ALLOWED.TEST'), 'settings/auction'))))
+  it('other domains get no access at all', async () => {
+    for (const email of ['dan@gmail.com', 'dan@notallowed.test', 'dan@allowed.test.evil.com', 'dan@allowed-test']) {
+      const fs = as('dan', email)
+      await assertFails(getDoc(doc(fs, 'items/item1')))
+      await assertFails(getDoc(doc(fs, 'settings/auction')))
+      await assertFails(getDoc(doc(fs, 'catalog/items')))
+      await assertFails(setDoc(doc(fs, 'users/dan'), profile(email)))
+    }
+  })
+  it('an unverified email on the allowed domain is refused', () =>
+    assertFails(getDoc(doc(as('dan', 'dan@allowed.test', { email_verified: false }), 'items/item1'))))
+  it('outsiders cannot bid even with a profile doc', async () => {
+    await seed((fs) => setDoc(doc(fs, 'users/eve'), user('eve')))
+    await assertFails(rawBid(as('eve', 'eve@gmail.com'), 'item1', { n: 1, amount: 5000, uid: 'eve' }))
+  })
+  it('emulator test accounts (@example.com) only work on demo-* projects', async () => {
+    await assertSucceeds(getDoc(doc(as('dan', 'dan@allowed.test', { aud: 'real-project' }), 'items/item1')))
+    await assertFails(getDoc(doc(as('dan', 'dan@example.com', { aud: 'real-project' }), 'items/item1')))
   })
 })
 

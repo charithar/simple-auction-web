@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from 'firebase/auth'
-import { auth, db, googleProvider } from '../firebase.js'
+import { auth, db, googleProvider, useEmulators } from '../firebase.js'
+import { emailAllowed, allowedDomainsText } from '../lib/access.js'
 import { syncProfile, checkAdmin } from '../lib/profile.js'
 import { readCached, writeCached, clearCached } from '../lib/loadGuard.js'
 
@@ -43,6 +44,19 @@ export const useAuthStore = defineStore('auth', () => {
       if (!fbUser) {
         user.value = null
         isAdmin.value = false
+        markReady()
+        return
+      }
+      // Other domains are refused by the rules anyway; sign them out before any
+      // Firestore request and say which account to use.
+      if (!emailAllowed(fbUser.email, { emulator: useEmulators })) {
+        const domains = allowedDomainsText()
+        error.value = domains
+          ? `Please sign in with your ${domains} Google account.`
+          : 'Sign-in is not set up for this site yet (no allowed domains configured).'
+        user.value = null
+        isAdmin.value = false
+        fbSignOut(auth).catch(() => {})
         markReady()
         return
       }

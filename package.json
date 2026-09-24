@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run tests/unit",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-auction \"vitest run tests/rules\"",
+    "rules": "node scripts/build-rules.mjs",
+    "deploy:rules": "node scripts/build-rules.mjs --require && firebase deploy --only firestore:rules,firestore:indexes",
+    "test:rules": "npm run rules && firebase emulators:exec --only firestore --project demo-auction \"vitest run tests/rules\"",
     "test:docker": "docker build -t auction-vue-test . && docker run --rm auction-vue-test sh -c \"npm run lint && npm test && npm run test:rules\"",
     "seed": "node scripts/seed-emulator.mjs",
     "smoke": "node scripts/smoke-emulator.mjs",
@@ -19,8 +21,8 @@
     "e2e:admin": "node scripts/browser/admin.mjs",
     "e2e:tabs": "node scripts/browser/tabs.mjs",
     "e2e:reload": "node scripts/browser/reload.mjs",
-    "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 4000:4000 -p 4400:4400 -p 8080:8080 -p 9099:9099 auction-vue-test npx firebase emulators:start --only firestore,auth --project demo-auction",
-    "emulators": "firebase emulators:start --only firestore,auth --project demo-auction"
+    "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 4000:4000 -p 4400:4400 -p 8080:8080 -p 9099:9099 auction-vue-test sh -c \"npm run rules && npx firebase emulators:start --only firestore,auth --project demo-auction\"",
+    "emulators": "npm run rules && firebase emulators:start --only firestore,auth --project demo-auction"
   },
   "dependencies": {
     "firebase": "^12.19.0",

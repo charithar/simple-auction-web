@@ -11,19 +11,34 @@ rules_version = '2';
 // Anti-sniping: an item's effective end is max(endTime, lastBidAt + antiSnipeSeconds).
 // Increments: item.minIncrement / item.maxIncrement override settings/auction values.
 // Amounts are whole numbers (int) to avoid floating-point comparisons.
+//
+// This file is a TEMPLATE: scripts/build-rules.mjs (npm run rules / deploy:rules)
+// fills in the allowed domains from VITE_ALLOWED_DOMAINS and writes
+// .rules/firestore.rules, which is what gets deployed. Unrendered, it lets no
+// real account in.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ---------- helpers ----------
 
+    // Only verified accounts on the allowed domains get any access (reads too, so
+    // outsiders can't spend the read quota). The domains are rendered in from
+    // VITE_ALLOWED_DOMAINS, the same variable the client uses (src/lib/access.js).
+    // demo-* projects exist only in the emulator, whose test accounts are @example.com.
+    function allowedEmail() {
+      let email = request.auth.token.get('email', '').lower();
+      return request.auth.token.get('email_verified', false) == true
+        && (email.matches('.*@(__ALLOWED_DOMAINS__)$')
+            || (request.auth.token.aud.matches('demo-.*') && email.matches('.*@example[.]com$')));
+    }
+
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && allowedEmail();
     }
 
     function isGoogleUser() {
       return signedIn()
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
-        && request.auth.token.email_verified == true;
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
     function isAdmin() {

@@ -6,6 +6,8 @@ test-results
 .env.*
 !.env.example
 .firebase
+# Rendered from firestore.rules with the allowed domains (npm run rules)
+.rules
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*

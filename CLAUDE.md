@@ -13,6 +13,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 
 - `npm run dev` / `build` / `preview` / `lint`
 - `npm test`: unit tests for the pure logic (`tests/unit`)
+- `npm run deploy:rules -- --project <id>`: renders the rules with `VITE_ALLOWED_DOMAINS` and deploys them (the user runs this; it contacts Firebase).
 - `npm run test:rules`: Firestore rules tests on the emulator (`tests/rules`). **Requires Java 21+.** CI runs them.
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
@@ -63,6 +64,10 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 - **Increments:** first bid ≥ `currentAmount` (the starting price). Every later bid ≥ `currentAmount + minIncrement` and ≤ `currentAmount + maxIncrement`. Values set on the item override `settings/auction`.
 - **Amounts are integers.** Rules check `is int`. Money is never stored as a float.
 - Bidders see only the current amount and bid count. There is no public bid history and no bidder names in public documents.
+- **Allowed domains** come only from the `VITE_ALLOWED_DOMAINS` env var. **Never write the real domain anywhere in the repo** (tests use `allowed.test`).
+  - Every rule goes through `signedIn()` → `allowedEmail()`: a verified email on an allowed domain. `@example.com` is also accepted, but only when the token's `aud` is a `demo-*` project (emulator only).
+  - `firestore.rules` is a template with `__ALLOWED_DOMAINS__`. `scripts/build-rules.mjs` (`npm run rules`, run by `emulators`/`test:rules`; `deploy:rules` adds `--require`) renders it into gitignored `.rules/firestore.rules`, which `firebase.json` points to. Unrendered it fails closed.
+  - Client: `src/lib/access.js` (`parseDomains`, `ALLOWED_DOMAINS`), `hd` hint in `firebase.js`, sign-out of other domains in `stores/auth.js`. `vite.config.js` fails the build on a malformed value and warns when it's empty.
 - `src/lib/auction.js` mirrors the rule logic for the UI, and `src/lib/itemView.js` derives each viewer's state (status, standing: winning/outbid/won/lost, min/max bid). **Any rule change must be made in both places**, with tests in both suites.
 
 ## Client structure

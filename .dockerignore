@@ -6,5 +6,6 @@ dist
 !.env.example
 *.log
 .firebase
+.rules
 .idea
 .vscode

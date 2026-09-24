@@ -19,22 +19,34 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 4. **Firestore Database → Create database** in production mode. Pick the location closest to your bidders, e.g. `asia-south1` (Mumbai) for Sri Lanka. **The location can't be changed later.**
 5. **Project settings → Your apps → Web app (`</>`)**. Register an app and note `apiKey`, `authDomain`, `projectId` and `appId`.
 
+### Allowed sign-in domain
+
+Only Google accounts on the domains in **`VITE_ALLOWED_DOMAINS`** (comma-separated, e.g. `example.org`) can use the app. The domain is never written in the repo:
+
+- **App:** set it in `.env.local` and as the `VITE_ALLOWED_DOMAINS` repository variable (GitHub Pages build).
+- **Rules:** [`firestore.rules`](firestore.rules) is a template. `npm run deploy:rules -- --project <id>` renders the domains from `.env.local` into `.rules/firestore.rules` (gitignored) and deploys that. It refuses to run with no domains. The unrendered template lets no real account in.
+
+- The rules are the real check: any other account (or an unverified email) gets no reads or writes at all.
+- The app asks Google to offer only that Workspace's accounts (`hd`), and signs out any other account with a message.
+- Firebase Authentication still records an outsider who picks another account, because Spark has no blocking functions. Those users can't do anything; delete them in **Authentication → Users** if you like.
+- Stronger, optional: if the Firebase project belongs to your Google Workspace organisation, set **Google Cloud console → APIs & Services → OAuth consent screen → User type: Internal**. Google then refuses other accounts before they reach Firebase.
+
 ### Deploy the security rules and indexes
 
 Run this from this folder on your own machine. It signs in to your Google account and deploys only to the project you name.
 
 ```sh
 npx firebase login
-npx firebase deploy --only firestore:rules,firestore:indexes --project <your-project-id>
+npm run deploy:rules -- --project <your-project-id>   # needs VITE_ALLOWED_DOMAINS in .env.local
 ```
 
-Re-run it whenever `firestore.rules` or `firestore.indexes.json` change. **Without the rules, the database is locked or, worse, open.**
+Re-run it whenever `firestore.rules`, `firestore.indexes.json` or `VITE_ALLOWED_DOMAINS` change. **Without the rules, the database is locked or, worse, open.**
 
 ### GitHub Pages
 
 1. Push this folder to a GitHub repository.
 2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-3. **Settings → Secrets and variables → Actions → Variables**: add `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID` and `VITE_FIREBASE_APP_ID` (optionally `VITE_APPCHECK_SITE_KEY`, see below). The Firebase web config isn't secret, but keeping it out of the code makes it easy to switch projects.
+3. **Settings → Secrets and variables → Actions → Variables**: add `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` and `VITE_ALLOWED_DOMAINS` (optionally `VITE_APPCHECK_SITE_KEY`, see below). The Firebase web config isn't secret, but keeping it out of the code makes it easy to switch projects.
 4. Push to `main`. The workflow runs lint, unit and rules tests, then deploys to `https://<user>.github.io/<repo>/`.
 
 ### Make yourself an admin
@@ -92,7 +104,7 @@ items:
 
 ## 3. Pre-auction checklist
 
-- [ ] Rules and indexes deployed (`npx firebase deploy --only firestore:rules,firestore:indexes`).
+- [ ] Rules and indexes deployed (`npm run deploy:rules -- --project <id>`), with the same `VITE_ALLOWED_DOMAINS` as the site.
 - [ ] Your admin account works; ideally add a second admin as a backup.
 - [ ] `data/auction.yml` has the real `endTime`, prices and increments, and every image loads.
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.

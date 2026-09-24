@@ -3,9 +3,10 @@ import { getAuth, GoogleAuthProvider, connectAuthEmulator } from 'firebase/auth'
 import {
   initializeFirestore, connectFirestoreEmulator, persistentLocalCache, persistentMultipleTabManager,
 } from 'firebase/firestore'
+import { ALLOWED_DOMAINS } from './lib/access.js'
 
 const env = import.meta.env
-const useEmulators = env.VITE_USE_EMULATORS === 'true'
+export const useEmulators = env.VITE_USE_EMULATORS === 'true'
 
 const app = initializeApp({
   apiKey: env.VITE_FIREBASE_API_KEY || 'demo-key',
@@ -36,7 +37,12 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 })
 export const googleProvider = new GoogleAuthProvider()
-googleProvider.setCustomParameters({ prompt: 'select_account' })
+// hd makes Google offer only accounts of that Workspace domain. It's a hint, not a
+// check: the auth store and firestore.rules reject other domains.
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+  ...(ALLOWED_DOMAINS.length === 1 && !useEmulators ? { hd: ALLOWED_DOMAINS[0] } : {}),
+})
 
 if (useEmulators) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
