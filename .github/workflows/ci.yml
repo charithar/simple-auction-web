@@ -1,5 +1,7 @@
-name: CI & Pages
+name: CI
 
+# Tests only. The site is built and deployed from a local machine to Cloudflare
+# Pages (npm run deploy:site), so no Firebase config or domains are needed here.
 on:
   push:
     branches: [main]
@@ -27,43 +29,3 @@ jobs:
       - run: npm test
       # Local emulator only (demo- project id); never touches a real Firebase project.
       - run: npm run test:rules
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-        env:
-          # Repository secrets (Settings > Secrets and variables > Actions > Secrets): masked in the
-          # public Actions logs, unlike variables. They still end up in the public JS bundle.
-          # vite.config.js fails the build if a required one is missing.
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_APPCHECK_SITE_KEY: ${{ secrets.VITE_APPCHECK_SITE_KEY }}
-          VITE_ALLOWED_DOMAINS: ${{ secrets.VITE_ALLOWED_DOMAINS }}
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./dist
-
-  deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4

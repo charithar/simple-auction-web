@@ -1,6 +1,6 @@
 # Auction
 
-A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on GitHub Pages. It's built to run on Firebase's **free Spark plan**: no billing account, no Cloud Functions, no Cloud Storage. Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
+A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on Cloudflare Pages. It's built to run on Firebase's **free Spark plan**: no billing account, no Cloud Functions, no Cloud Storage. Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
 
 - Bidders sign in with Google, see live prices and countdowns, and get "winning" / "outbid" badges.
 - Anti-sniping: a bid in the last *N* seconds keeps that item open until *N* seconds after the bid.
@@ -15,7 +15,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 
 1. In the [Firebase console](https://console.firebase.google.com/), **create a project**. Google Analytics isn't needed. Stay on the **Spark (free)** plan and never add a billing account.
 2. **Authentication → Sign-in method → Google → Enable.**
-3. **Authentication → Settings → Authorized domains → Add** `<your-github-user>.github.io` (plus any custom domain).
+3. **Authentication → Settings → Authorized domains → Add** `<your-pages-project>.pages.dev` (plus any custom domain).
 4. **Firestore Database → Create database** in production mode. Pick the location closest to your bidders, e.g. `asia-south1` (Mumbai) for Sri Lanka. **The location can't be changed later.**
 5. **Project settings → Your apps → Web app (`</>`)**. Register an app and note `apiKey`, `authDomain`, `projectId` and `appId`.
 
@@ -23,7 +23,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 
 Only Google accounts on the domains in **`VITE_ALLOWED_DOMAINS`** (comma-separated, e.g. `example.org`) can use the app. The domain is never written in the repo:
 
-- **App:** set it in `.env.local` and as the `VITE_ALLOWED_DOMAINS` repository secret (GitHub Pages build).
+- **App:** set it in `.env.local`; the site is built from there (see Cloudflare Pages below).
 - **Rules:** [`firestore.rules`](firestore.rules) is a template. `npm run deploy:rules -- --project <id>` renders the domains from `.env.local` into `.rules/firestore.rules` (gitignored) and deploys that. It refuses to run with no domains. The unrendered template lets no real account in.
 
 - The rules are the real check: any other account (or an unverified email) gets no reads or writes at all.
@@ -42,12 +42,17 @@ npm run deploy:rules -- --project <your-project-id>   # needs VITE_ALLOWED_DOMAI
 
 Re-run it whenever `firestore.rules`, `firestore.indexes.json` or `VITE_ALLOWED_DOMAINS` change. **Without the rules, the database is locked or, worse, open.**
 
-### GitHub Pages
+### Cloudflare Pages
 
-1. Push this folder to a GitHub repository.
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-3. **Settings → Secrets and variables → Actions → Secrets** (not Variables): add `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` and `VITE_ALLOWED_DOMAINS` (optionally `VITE_APPCHECK_SITE_KEY`, see below). The build fails if any of the required ones is missing. Secrets rather than variables because this repo's Actions logs are public and variables are printed there. None of this is truly secret: the values end up in the site's JavaScript, and access is controlled by the Firestore rules.
-4. Push to `main`. The workflow runs lint, unit and rules tests, then deploys to `https://<user>.github.io/<repo>/`.
+The site is built on your machine from `.env.local` and uploaded directly (no git connection, so the config never goes to GitHub or Cloudflare's build servers). Free plan: unlimited bandwidth.
+
+1. Once: `npx wrangler login`, then `npx wrangler pages project create <name> --production-branch main`.
+2. Deploy (and re-deploy after any change): `npm run deploy:site -- --project-name <name>`. The build fails if a required value is missing from `.env.local`.
+3. The site is at `https://<name>.pages.dev`. For a custom domain: Cloudflare dashboard → **Workers & Pages → your project → Custom domains**. Add both hosts to Firebase's authorized domains.
+4. `public/_headers` marks the site `noindex` and caches the hashed assets forever; `robots.txt` disallows crawling.
+5. **After the auction:** delete the project in the Cloudflare dashboard (or `npx wrangler pages project delete <name>`).
+
+GitHub Actions only runs lint, unit and rules tests; it needs no secrets.
 
 ### Make yourself an admin
 
@@ -62,8 +67,8 @@ Only accounts listed in `admins` can import items, change settings or see bidder
 
 App Check makes Firestore reject requests that don't come from your site, such as scripts that could burn through the free read quota.
 
-1. Firebase console → **App Check → Apps → your web app → reCAPTCHA v3**. Create a site key for your Pages domain and register it.
-2. Add the site key as the `VITE_APPCHECK_SITE_KEY` repository secret, then redeploy.
+1. Firebase console → **App Check → Apps → your web app → reCAPTCHA v3**. Create a site key for your site's domain(s) and register it.
+2. Add the site key as `VITE_APPCHECK_SITE_KEY` in `.env.local`, then redeploy (`npm run deploy:site`).
 3. Watch **App Check → Firestore** metrics for a day. Once almost all requests show as *verified*, click **Enforce**.
 
 reCAPTCHA v3's free tier comfortably covers ~100 bidders. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.

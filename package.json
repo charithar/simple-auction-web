@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run tests/unit",
     "rules": "node scripts/build-rules.mjs",
+    "deploy:site": "vite build && npx --yes wrangler@4 pages deploy dist --branch main --commit-dirty=true",
     "deploy:rules": "node scripts/build-rules.mjs --require && firebase deploy --only firestore:rules,firestore:indexes",
     "test:rules": "npm run rules && firebase emulators:exec --only firestore --project demo-auction \"vitest run tests/rules\"",
     "test:docker": "docker build -t auction-vue-test . && docker run --rm auction-vue-test sh -c \"npm run lint && npm test && npm run test:rules\"",

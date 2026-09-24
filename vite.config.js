@@ -3,8 +3,6 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { parseDomains } from './src/lib/access.js'
 
-// Relative base + hash routing lets the build be served from any path
-// (e.g. https://<user>.github.io/<repo>/) without a 404 fallback.
 // A build without these deploys a site where sign-in fails (e.g. no authDomain:
 // auth/auth-domain-config-required), so `vite build` refuses to run without them.
 const REQUIRED = [
@@ -20,11 +18,13 @@ export default defineConfig(({ command, mode }) => {
   if (command === 'build' && env.VITE_USE_EMULATORS !== 'true') {
     const missing = REQUIRED.filter((k) => !String(env[k] ?? '').trim())
     if (missing.length) {
-      throw new Error(`Missing ${missing.join(', ')}: set them in .env.local, or as repository secrets for the GitHub build.`)
+      throw new Error(`Missing ${missing.join(', ')}: set them in .env.local.`)
     }
   }
 
   return {
+    // Relative base + hash routing lets the build be served from any path
+    // (Cloudflare Pages, a sub-folder, a file server) without a 404 fallback.
     base: './',
     plugins: [vue(), tailwindcss()],
     // Firebase Auth + Firestore alone is ~600 kB minified (~195 kB gzip); that's expected.

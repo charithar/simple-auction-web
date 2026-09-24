@@ -2,7 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth.js'
 import HomeView from './views/HomeView.vue'
 
-// Hash history: works on GitHub Pages without a 404.html fallback.
+// Hash history: works on any static host without a 404.html fallback.
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
