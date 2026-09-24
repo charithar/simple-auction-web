@@ -7,6 +7,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   base: './',
   plugins: [vue(), tailwindcss()],
+  // Firebase Auth + Firestore alone is ~600 kB minified (~195 kB gzip); that's expected.
+  build: { chunkSizeWarningLimit: 800 },
   test: {
     include: ['tests/**/*.test.js'],
     environment: 'node',

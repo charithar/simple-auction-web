@@ -14,7 +14,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 20 items and 100
 - `npm test`: unit tests for the pure logic (`tests/unit`)
 - `npm run test:rules`: Firestore rules tests on the emulator (`tests/rules`). **Requires Java 21+.** CI runs them.
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
-- `npm run emulators`: local Auth and Firestore. Set `VITE_USE_EMULATORS=true` in `.env.local`.
+- `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`. To make a local admin, sign in once, then create `admins/{uid}` in the emulator UI.
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
 
 ## Data model
@@ -46,7 +46,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 1. ✅ Scaffold, lint, unit tests, CI/Pages workflow
 2. ✅ `firestore.rules` and emulator tests (37 passing in Docker)
-3. ⬜ Auth: Google sign-in, create the user doc, estimate the server clock offset from `lastSeen`, admin check
+3. ✅ Auth: `stores/auth.js` (Google popup sign-in, `whenReady()` for route guards), `lib/profile.js` (user doc sync and clock offset, admin check), `stores/clock.js` (shared ticker, `useNow()`), `/admin` guard
 4. ⬜ Bidder UI: item grid, bid modal, one shared ticker, listeners that stop when the tab is hidden, "my bids" via `collectionGroup`
 5. ⬜ Admin: YAML/JSON import (batch; warn before changing items that have bids), live table with names, bidding on/off switch, extend end time, reset bids, CSV export of winners
 6. ⬜ Hardening: App Check, load test on the emulator, README and pre-auction checklist

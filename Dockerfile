@@ -5,6 +5,7 @@
 #   docker run --rm auction-vue-test                      # rules tests (default)
 #   docker run --rm auction-vue-test npm test             # unit tests
 #   docker run --rm auction-vue-test npm run lint
+#   npm run emulators:docker                             # Auth + Firestore + UI on localhost for `npm run dev`
 FROM node:22-bookworm-slim
 
 COPY --from=eclipse-temurin:21-jre /opt/java/openjdk /opt/java/openjdk
@@ -19,7 +20,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Bake the emulator JAR into the image so test runs need no downloads.
-RUN npx firebase setup:emulators:firestore
+RUN npx firebase setup:emulators:firestore && npx firebase setup:emulators:ui
 
 COPY . .
 

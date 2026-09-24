@@ -1,13 +1,28 @@
 <script setup>
-import { RouterView } from 'vue-router'
+import { watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from './stores/auth.js'
+import NavBar from './components/NavBar.vue'
+
+const auth = useAuthStore()
+auth.init()
+
+// Leave admin pages as soon as admin rights go away (e.g. sign-out).
+const route = useRoute()
+const router = useRouter()
+watch(
+  () => auth.isAdmin,
+  (admin) => {
+    if (!admin && route.meta.requiresAdmin) router.replace({ name: 'home' })
+  },
+)
 </script>
 
 <template>
-  <header class="bg-slate-800 text-white">
-    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-      <span class="text-lg font-semibold">Auction</span>
-    </div>
-  </header>
+  <NavBar />
+  <div v-if="auth.error" class="bg-red-50 text-red-800" role="alert">
+    <div class="mx-auto max-w-6xl px-4 py-2 text-sm">{{ auth.error }}</div>
+  </div>
   <main class="mx-auto max-w-6xl px-4 py-6">
     <RouterView />
   </main>
