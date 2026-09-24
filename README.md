@@ -23,7 +23,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 
 Only Google accounts on the domains in **`VITE_ALLOWED_DOMAINS`** (comma-separated, e.g. `example.org`) can use the app. The domain is never written in the repo:
 
-- **App:** set it in `.env.local` and as the `VITE_ALLOWED_DOMAINS` repository variable (GitHub Pages build).
+- **App:** set it in `.env.local` and as the `VITE_ALLOWED_DOMAINS` repository secret (GitHub Pages build).
 - **Rules:** [`firestore.rules`](firestore.rules) is a template. `npm run deploy:rules -- --project <id>` renders the domains from `.env.local` into `.rules/firestore.rules` (gitignored) and deploys that. It refuses to run with no domains. The unrendered template lets no real account in.
 
 - The rules are the real check: any other account (or an unverified email) gets no reads or writes at all.
@@ -46,7 +46,7 @@ Re-run it whenever `firestore.rules`, `firestore.indexes.json` or `VITE_ALLOWED_
 
 1. Push this folder to a GitHub repository.
 2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-3. **Settings → Secrets and variables → Actions → Variables**: add `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` and `VITE_ALLOWED_DOMAINS` (optionally `VITE_APPCHECK_SITE_KEY`, see below). The Firebase web config isn't secret, but keeping it out of the code makes it easy to switch projects.
+3. **Settings → Secrets and variables → Actions → Secrets** (not Variables): add `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` and `VITE_ALLOWED_DOMAINS` (optionally `VITE_APPCHECK_SITE_KEY`, see below). The build fails if any of the required ones is missing. Secrets rather than variables because this repo's Actions logs are public and variables are printed there. None of this is truly secret: the values end up in the site's JavaScript, and access is controlled by the Firestore rules.
 4. Push to `main`. The workflow runs lint, unit and rules tests, then deploys to `https://<user>.github.io/<repo>/`.
 
 ### Make yourself an admin
@@ -63,7 +63,7 @@ Only accounts listed in `admins` can import items, change settings or see bidder
 App Check makes Firestore reject requests that don't come from your site, such as scripts that could burn through the free read quota.
 
 1. Firebase console → **App Check → Apps → your web app → reCAPTCHA v3**. Create a site key for your Pages domain and register it.
-2. Add the site key as the `VITE_APPCHECK_SITE_KEY` repository variable, then redeploy.
+2. Add the site key as the `VITE_APPCHECK_SITE_KEY` repository secret, then redeploy.
 3. Watch **App Check → Firestore** metrics for a day. Once almost all requests show as *verified*, click **Enforce**.
 
 reCAPTCHA v3's free tier comfortably covers ~100 bidders. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.

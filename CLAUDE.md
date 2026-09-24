@@ -29,7 +29,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
   - `tabs`/`reload` count Firestore listen targets per page (`trackListens`) to check the multi-tab sharing and the reload cooldown.
 - `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
-- Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
+- Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo **secrets** (`secrets.*`, masked in the public Actions logs), not variables. `vite.config.js` fails a production build when a required value is missing. Never commit it.
 
 ## Auction file (`data/auction.yml`)
 
