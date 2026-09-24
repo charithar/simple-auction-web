@@ -5,6 +5,7 @@
 //   npm run seed -- --first-close 5m               # first item closes in 5 minutes
 //   npm run seed -- --admin you@example.com        # also make that emulator user an admin
 //   npm run seed -- --closed                       # bidding switched off
+//   npm run seed -- --admin-only you@example.com   # just grant admin; leave items and bids alone
 //   npm run seed -- --file other.yml
 //
 // Existing items and bids are deleted; users and admins are kept.
@@ -24,8 +25,19 @@ const { values: args } = parseArgs({
     'first-close': { type: 'string', default: '30m' },
     admin: { type: 'string' },
     closed: { type: 'boolean', default: false },
+    'admin-only': { type: 'string' },
   },
 })
+
+if (args['admin-only']) {
+  setLogLevel('error')
+  const env = await initializeTestEnvironment({ projectId: PROJECT, firestore: FIRESTORE })
+  const uid = await uidForEmail(args['admin-only'])
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'admins', uid), {}))
+  await env.cleanup()
+  console.log(`Admin: ${args['admin-only']} (${uid})`)
+  process.exit(0)
+}
 
 const { settings, items, errors } = parseAuctionFile(readFileSync(args.file, 'utf8'))
 if (errors.length) {

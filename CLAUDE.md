@@ -16,7 +16,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 - `npm run test:rules`: Firestore rules tests on the emulator (`tests/rules`). **Requires Java 21+.** CI runs them.
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
-- `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator. It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once.
+- `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator. It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.
 
@@ -53,6 +53,12 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 - `stores/auction.js`: listeners on settings, items (ordered by `order`) and the user's own bids (`collectionGroup` query on `uid`). They start and stop with sign-in, and **detach after the tab has been hidden for 3 minutes**, reattaching when it's visible again.
 - `firebase.js` uses `persistentLocalCache`. A listener that reattaches within 30 minutes is billed only for the items that changed.
 - `HomeView.vue` renders the grid with filters (All/Open/My bids/Outbid), search, sort, and a single `useNow()` ticker. The open item is kept in the URL (`#/?item=item-007`).
+- `AdminView.vue` (`#/admin`, route-guarded) is built from `components/admin/*` on top of `lib/admin.js`. The library functions take `db` so the emulator tests use them directly.
+  - **Import:** `planImport` (pure diff: creates/updates/unchanged/missing, with warnings when an item that has bids gets a new price, end or increments) and then `applyImport`. Settings are merged, so `biddingOpen` and `message` survive. A first import leaves bidding **closed**. Items with bids are never removed.
+  - **Per item:** +5m/+15m (`extendItem` works from max(effective end, now)), set the closing time, bid history, and `resetItemBids`, which **refuses while bidding is open** because a bid landing mid-reset would orphan a bid number.
+  - **Exports:** winners CSV and all-bids CSV (one read per bid). The CSV has a UTF-8 BOM so Excel opens it correctly.
+  - User names and emails come through `createUserCache`: one read per bidder per admin session.
+  - Destructive actions use the two-step `ConfirmButton` instead of `confirm()`.
 - `BidDialog.vue` is a native `<dialog>`. It raises the suggested amount when someone outbids you while it's open. On phones the bid box comes before the specs.
 
 ## Free-tier budget (the main risk is reads, not cost)
@@ -70,5 +76,5 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 2. ✅ `firestore.rules` and emulator tests
 3. ✅ Auth: `stores/auth.js`, `lib/profile.js` (user doc sync and clock offset, admin check), `stores/clock.js` (`useNow()`), `/admin` guard
 4. ✅ Bidder UI: grid, bid dialog, filters/search/sort, winning/outbid badges, hidden-tab detach, persistent cache, auction file format + converter, `seed` and `smoke` scripts. Checked in headless Chrome on desktop and mobile.
-5. ⬜ Admin: import `auction.yml` (reuse `parseAuctionFile`; warn before changing items that have bids), live table with names, bidding on/off switch and message, extend end time, reset bids, CSV export of winners
+5. ✅ Admin: import with a diff preview, bidding on/off and message, live table with leading bidder, bid history, extend/set closing time, reset bids (only while paused), stats, winners and all-bids CSV. Emulator tests are in `tests/rules/admin.test.js`; checked in headless Chrome.
 6. ⬜ Hardening: App Check, load test (extend `scripts/smoke-emulator.mjs`), README and pre-auction checklist
