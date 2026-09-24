@@ -21,6 +21,11 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
   - `visible` (the default) mimics the app: catalog, plus live listeners for the cards on screen, favourites and own bids, with scrolling.
   - `all` is the old listen-to-everything strategy, kept for comparison.
   - **Emulator latency grows with the number of listeners and doesn't reflect production.**
+- `npm run e2e:bidder | e2e:tabs | e2e:reload | e2e:admin`: headless-Chrome checks in `scripts/browser/` (puppeteer-core with the local Chrome; `CHROME_PATH`, `APP_URL` and `HEADFUL=1` are optional).
+  - Setup: emulators running, then `npm run seed`, `npm run smoke` (creates `smoke0..N@example.com`) and `npm run dev`. `e2e:admin` also needs `seed -- --admin-only smoke0@example.com`, and it changes the data.
+  - Sign-in goes through the Auth emulator's account picker. Its list renders before its click handlers are bound, so `signIn()` retries.
+  - Wait with `polling: 250`, never animation-frame polling, because background tabs get no animation frames.
+  - `tabs`/`reload` count Firestore listen targets per page (`trackListens`) to check the multi-tab sharing and the reload cooldown.
 - `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
 - Firebase web config comes from `.env.local` (see `.env.example`). In CI it comes from repo variables. Never commit it.

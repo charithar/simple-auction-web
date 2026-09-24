@@ -156,6 +156,14 @@ npm run test:docker               # lint + unit + security-rules tests in Docker
 npm run smoke -- --users 20       # end-to-end checks against the running emulators
 npm run load -- --users 100       # load test + read-budget projection (--mode all to compare)
 npm run check                     # emulator data integrity (bids vs. item state)
+
+# Browser checks (headless Chrome via puppeteer-core; needs Chrome installed, or set CHROME_PATH).
+# With emulators running, then: npm run seed, npm run smoke (creates test accounts), npm run dev
+npm run e2e:bidder                # grid, live prices, bidding, dialog, filters, phone layout, offline
+npm run e2e:tabs                  # extra tabs share one Firestore connection
+npm run e2e:reload                # rapid reloads: cached prices + cooldown (~1.5 min)
+npm run seed -- --admin-only smoke0@example.com && npm run e2e:admin   # admin page; changes data, re-seed after
+# HEADFUL=1 to watch; screenshots go to test-results/browser/
 ```
 
 `CLAUDE.md` describes the architecture, data model and conventions in detail.

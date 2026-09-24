@@ -15,6 +15,10 @@
     "smoke": "node scripts/smoke-emulator.mjs",
     "load": "node scripts/load-emulator.mjs",
     "check": "node scripts/check-integrity.mjs",
+    "e2e:bidder": "node scripts/browser/bidder.mjs",
+    "e2e:admin": "node scripts/browser/admin.mjs",
+    "e2e:tabs": "node scripts/browser/tabs.mjs",
+    "e2e:reload": "node scripts/browser/reload.mjs",
     "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 4000:4000 -p 4400:4400 -p 8080:8080 -p 9099:9099 auction-vue-test npx firebase emulators:start --only firestore,auth --project demo-auction",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-auction"
   },
@@ -34,6 +38,7 @@
     "eslint-plugin-vue": "^10.11.1",
     "firebase-tools": "^15.31.0",
     "globals": "^17.12.0",
+    "puppeteer-core": "^25.12.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
