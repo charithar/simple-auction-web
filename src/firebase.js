@@ -15,16 +15,17 @@ const app = initializeApp({
   appId: env.VITE_FIREBASE_APP_ID,
 })
 
-// Optional App Check (reCAPTCHA v3): lets Firestore reject requests that don't come
+// Optional App Check (reCAPTCHA Enterprise, now "Fraud Defense"; Firebase no longer
+// offers plain reCAPTCHA v3 for new apps): lets Firestore reject requests that don't come
 // from this site, so scripts can't burn the free read quota. Only active when a site
 // key is configured; enforcement itself is switched on in the Firebase console.
 // Must run before any Firestore/Auth request, hence the top-level await. The key is
 // inlined at build time, so builds without it don't include App Check at all.
 if (!useEmulators && env.VITE_APPCHECK_SITE_KEY) {
-  const { initializeAppCheck, ReCaptchaV3Provider } = await import('firebase/app-check')
+  const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import('firebase/app-check')
   if (env.DEV && env.VITE_APPCHECK_DEBUG_TOKEN) self.FIREBASE_APPCHECK_DEBUG_TOKEN = env.VITE_APPCHECK_DEBUG_TOKEN
   initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(env.VITE_APPCHECK_SITE_KEY),
+    provider: new ReCaptchaEnterpriseProvider(env.VITE_APPCHECK_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   })
 }

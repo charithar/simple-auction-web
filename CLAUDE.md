@@ -115,7 +115,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 4. ✅ Bidder UI: grid, bid dialog, filters/search/sort, winning/outbid badges, hidden-tab detach, persistent cache, auction file format + converter, `seed` and `smoke` scripts. Checked in headless Chrome on desktop and mobile.
 5. ✅ Admin: import with a diff preview, bidding on/off and message, live table with leading bidder, bid history, extend/set closing time, reset bids (only while paused), stats, winners and all-bids CSV. Emulator tests are in `tests/rules/admin.test.js`; checked in headless Chrome.
 6. ✅ Hardening:
-   - Optional App Check (reCAPTCHA v3). It's dynamically imported behind a top-level await in `firebase.js`, only when `VITE_APPCHECK_SITE_KEY` is set at build time.
+   - Optional App Check (reCAPTCHA Enterprise, aka Fraud Defense, via `ReCaptchaEnterpriseProvider`; plain v3 is deprecated in App Check). It's dynamically imported behind a top-level await in `firebase.js`, only when `VITE_APPCHECK_SITE_KEY` is set at build time.
    - Offline banner, and bidding disabled while offline (`composables/useOnline.js`).
    - Load test.
    - README: setup, checklist, day-of runbook, budget.

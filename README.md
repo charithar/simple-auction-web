@@ -67,11 +67,12 @@ Only accounts listed in `admins` can import items, change settings or see bidder
 
 App Check makes Firestore reject requests that don't come from your site, such as scripts that could burn through the free read quota.
 
-1. Firebase console → **App Check → Apps → your web app → reCAPTCHA v3**. Create a site key for your site's domain(s) and register it.
+1. Google Cloud console → **reCAPTCHA** (now called **Fraud Defense**) → create a **website, score-based** key for your site's domain (`<name>.pages.dev`).
+   Then Firebase console → **App Check → Apps → your web app → reCAPTCHA Enterprise** and register that site key. Plain reCAPTCHA v3 is deprecated in App Check and the app uses the Enterprise provider.
 2. Add the site key as `VITE_APPCHECK_SITE_KEY` in `.env.local`, then redeploy (`npm run deploy:site`).
 3. Watch **App Check → Firestore** metrics for a day. Once almost all requests show as *verified*, click **Enforce**.
 
-reCAPTCHA v3's free tier comfortably covers ~100 bidders. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.
+The free tier (10,000 assessments a month) comfortably covers ~100 bidders: App Check asks reCAPTCHA about once an hour per open browser. No billing account is needed below that. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.
 
 ---
 
