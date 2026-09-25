@@ -130,8 +130,9 @@ items:
 2. Keep the admin page open. It shows live prices, leading bidders, bid counts and items closing soon.
 3. Watch usage in Firebase console → **Firestore → Usage**. See the budget below.
 4. **Problems** (wrong price, item withdrawn): *Pause bidding* with a message, fix the item (set its closing time, or reset its bids while paused), then *Open bidding*.
-5. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
-6. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
+5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast): Firebase console → **Authentication → Users** → find the account → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour**, because a signed-in session stays valid until it expires and the rules don't check whether the account has been disabled. If they're bidding abusively, *Pause bidding* with a message until then.
+6. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
+7. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
 
 ## 5. Free-tier budget
 
