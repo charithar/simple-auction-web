@@ -18,6 +18,10 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 3. **Authentication → Settings → Authorized domains → Add** `<your-pages-project>.pages.dev` (plus any custom domain).
 4. **Firestore Database → Create database** in production mode. Pick the location closest to your bidders, e.g. `asia-south1` (Mumbai) for Sri Lanka. **The location can't be changed later.**
 5. **Project settings → Your apps → Web app (`</>`)**. Register an app and note `apiKey`, `authDomain`, `projectId` and `appId`.
+6. **Restrict the API key.** It ships in the page by design, but restricted it only works from your site. [Google Cloud console](https://console.cloud.google.com/apis/credentials) → **APIs & Services → Credentials** → the *Browser key (auto created by Firebase)*:
+   - **Application restrictions → Websites:** `https://<your-pages-project>.pages.dev/*` and `https://<project-id>.firebaseapp.com/*` (the `authDomain`; the sign-in popup runs there). Add a custom domain here too if you use one.
+   - **API restrictions → Restrict key:** Identity Toolkit API, Token Service API, Cloud Firestore API, Firebase App Check API.
+   - Pages preview URLs (`https://<hash>.<name>.pages.dev`) are then blocked, so always test on the main URL. A script can fake the `Referer` header, so this only stops casual reuse of the key; App Check is the real protection.
 
 ### Allowed sign-in domain
 
@@ -48,7 +52,7 @@ The site is built on your machine from `.env.local` and uploaded directly (no gi
 
 1. Once: `npx wrangler login`, then `npx wrangler pages project create <name> --production-branch main`.
 2. Deploy (and re-deploy after any change): `npm run deploy:site -- --project-name <name>`. The build fails if a required value is missing from `.env.local`.
-3. The site is at `https://<name>.pages.dev`. For a custom domain: Cloudflare dashboard → **Workers & Pages → your project → Custom domains**. Add both hosts to Firebase's authorized domains.
+3. The site is at `https://<name>.pages.dev`. For a custom domain: Cloudflare dashboard → **Workers & Pages → your project → Custom domains**. Add both hosts to Firebase's authorized domains **and** to the API key's website restrictions (step 6 above); a host missing from the key fails sign-in with `API_KEY_HTTP_REFERRER_BLOCKED`.
 4. `public/_headers` marks the site `noindex` and caches the hashed assets forever; `robots.txt` disallows crawling.
 5. **After the auction:** delete the project in the Cloudflare dashboard (or `npx wrangler pages project delete <name>`).
 
@@ -112,6 +116,7 @@ items:
 
 - [ ] Rules and indexes deployed (`npm run deploy:rules -- --project <id>`), with the same `VITE_ALLOWED_DOMAINS` as the site.
 - [ ] Your admin account works; ideally add a second admin as a backup.
+- [ ] API key restricted to your site and the `authDomain`, and to the four APIs (setup step 6).
 - [ ] `data/auction.yml` has the real `endTime`, prices and increments, and every image loads.
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
 - [ ] **Schedule:** Firestore's free quota resets at **midnight US Pacific time** (12:30 in Sri Lanka during US summer time, 13:30 otherwise). Run the busiest part, the closing, after the reset on the same day.
