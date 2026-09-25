@@ -2,11 +2,8 @@
 # X-Frame-Options / frame-ancestors: no framing by other sites, so a signed-in
 # bidder can't be clickjacked into "Place bid".
 #
-# Content-Security-Policy-Report-Only is a DRAFT: browsers only log violations
-# (DevTools console, "[Report Only]"), nothing is blocked. After signing in,
-# bidding and opening the admin page on the deployed site with a clean console,
-# merge it into the enforced Content-Security-Policy line below (keeping
-# frame-ancestors, which report-only ignores). What it allows:
+# Content-Security-Policy (enforced; ran report-only on the live site first with
+# a clean console through sign-in, bidding and the admin page). What it allows:
 #   script-src   the bundle; apis.google.com (Firebase Auth popup helper);
 #                reCAPTCHA Enterprise for App Check
 #   connect-src  Firestore, Auth (identitytoolkit, securetoken), App Check
@@ -14,16 +11,19 @@
 #                project id stays out of the repo) and reCAPTCHA
 #   img-src      https: because item photos may be hotlinked; Google avatars
 #   style-src    'unsafe-inline' for the styles reCAPTCHA injects
-# At the same time, add "Cross-Origin-Opener-Policy: same-origin-allow-popups"
-# and check sign-in still works (plain same-origin would break the popup).
-# Expected and harmless during sign-in, with or without our COOP: "Cross-Origin-
-# Opener-Policy policy would block the window.closed call" (Google's popup page
-# sets COOP, so the Firebase SDK can't poll whether the popup was closed).
+# A new external service (script, API, frame) must be added here, or the browser
+# blocks it: look for "Refused to ..." in the DevTools console.
+#
+# Cross-Origin-Opener-Policy: same-origin-allow-popups keeps the sign-in popup
+# working (plain same-origin would break it).
+# Expected and harmless during sign-in: "Cross-Origin-Opener-Policy policy would
+# block the window.closed call" (Google's popup page sets COOP, so the Firebase
+# SDK can't poll whether the popup was closed).
 /*
   X-Robots-Tag: noindex, nofollow
   X-Frame-Options: DENY
-  Content-Security-Policy: frame-ancestors 'none'
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://apis.google.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseappcheck.googleapis.com https://content-firebaseappcheck.googleapis.com https://www.google.com/recaptcha/; frame-src https://*.firebaseapp.com https://*.web.app https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://apis.google.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseappcheck.googleapis.com https://content-firebaseappcheck.googleapis.com https://www.google.com/recaptcha/; frame-src https://*.firebaseapp.com https://*.web.app https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
