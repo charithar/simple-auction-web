@@ -20,7 +20,13 @@ const sort = ref('lot')
 const search = ref('')
 
 // The open item lives in the URL (#/?item=item-007) so it survives reloads and can be shared.
-const openItemId = computed(() => (typeof route.query.item === 'string' ? route.query.item : null))
+// Only item-NNN ids (itemDocId): anything else in a crafted link would reach doc()
+// as a path (e.g. "x/bids/1"), start a listener and cost a read.
+const ITEM_ID = /^item-\d{3,}$/
+const openItemId = computed(() => {
+  const id = route.query.item
+  return typeof id === 'string' && ITEM_ID.test(id) ? id : null
+})
 const openItem = (id) => router.push({ query: { ...route.query, item: id } })
 const closeItem = () => {
   if (openItemId.value) router.replace({ query: { ...route.query, item: undefined } })

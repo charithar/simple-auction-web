@@ -1,4 +1,5 @@
 import { load } from 'js-yaml'
+import { imageUrlOk } from './images.js'
 
 // Auction file format (YAML or JSON). See data/auction.yml for a full example.
 //
@@ -18,7 +19,7 @@ import { load } from 'js-yaml'
 //     condition: Used - good
 //     specs: { CPU: Core i5, RAM: 16 GB, Storage: 1 TB HDD }
 //     detail: Free text shown in the item window.
-//     images: [https://...]
+//     images: [https://...]              # https:// URLs or paths relative to the site (images/lot-0.webp)
 //     startingPrice: 6000
 //     endTime: ...                       # optional per-item override
 //     minIncrement / maxIncrement / currency   # optional per-item overrides
@@ -97,6 +98,10 @@ export function parseAuctionFile(text) {
       err('specs must be a map of name: value')
     }
     if (r.images != null && !Array.isArray(r.images)) err('images must be a list of URLs')
+    const images = [...new Set((Array.isArray(r.images) ? r.images : []).filter(nonEmpty).map((u) => u.trim()))]
+    for (const u of images.filter((u) => !imageUrlOk(u))) {
+      err(`image "${u}" must be an https:// URL or a relative path like images/lot-0.webp`)
+    }
 
     const item = {
       id: itemDocId(r.id),
@@ -107,7 +112,7 @@ export function parseAuctionFile(text) {
       condition: str(r.condition),
       specs: Object.entries(r.specs ?? {}).map(([name, value]) => ({ name: str(name), value: str(value) })),
       detail: str(r.detail),
-      images: [...new Set((Array.isArray(r.images) ? r.images : []).filter(nonEmpty).map((u) => u.trim()))],
+      images,
       currency: str(r.currency) || str(a.currency) || 'Rs.',
       startingPrice: r.startingPrice,
       endTime,

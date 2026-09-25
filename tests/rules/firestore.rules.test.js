@@ -42,7 +42,8 @@ const seed = (fn) => env.withSecurityRulesDisabled((ctx) => fn(ctx.firestore()))
 
 const user = (uid) => ({
   name: uid, email: `${uid}@example.com`,
-  createdAt: Timestamp.now(), lastSeen: Timestamp.now(),
+  // Last seen an hour ago, so the once-a-minute lastSeen cooldown doesn't apply.
+  createdAt: Timestamp.fromMillis(Date.now() - HOUR), lastSeen: Timestamp.fromMillis(Date.now() - HOUR),
 })
 
 // A bid written directly (bypassing client validation) so the rules alone decide.
@@ -240,11 +241,20 @@ describe('users', () => {
     assertFails(setDoc(doc(db('carol'), 'users/carol'), newUser({ email: 'x@example.com' }))))
   it('cannot create a profile for someone else', () =>
     assertFails(setDoc(doc(db('carol'), 'users/dave'), newUser())))
-  it('can update own name and lastSeen only', async () => {
+  it('can touch own lastSeen only', async () => {
     const fs = db('alice')
-    await assertSucceeds(updateDoc(doc(fs, 'users/alice'), { name: 'Al', lastSeen: serverTimestamp() }))
+    await assertFails(updateDoc(doc(fs, 'users/alice'), { name: 'Bob', lastSeen: serverTimestamp() }))
     await assertFails(updateDoc(doc(fs, 'users/alice'), { email: 'z@example.com', lastSeen: serverTimestamp() }))
+    await assertFails(updateDoc(doc(fs, 'users/alice'), { lastSeen: Timestamp.now() }))
+    await assertSucceeds(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))
   })
+  it('cannot touch lastSeen again within a minute (write-quota abuse)', async () => {
+    const fs = db('alice')
+    await assertSucceeds(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))
+    await assertFails(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))
+  })
+  it("cannot touch someone else's lastSeen", () =>
+    assertFails(updateDoc(doc(db('alice'), 'users/bob'), { lastSeen: serverTimestamp() })))
   it('cannot read other users; admin can', async () => {
     await assertFails(getDoc(doc(db('alice'), 'users/bob')))
     await assertSucceeds(getDoc(doc(db('admin'), 'users/bob')))

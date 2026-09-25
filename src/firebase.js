@@ -5,14 +5,16 @@ import {
 } from 'firebase/firestore'
 import { ALLOWED_DOMAINS } from './lib/access.js'
 
-const env = import.meta.env
-export const useEmulators = env.VITE_USE_EMULATORS === 'true'
+// Always import.meta.env.VITE_X, never `import.meta.env` on its own: Vite inlines
+// each referenced value, but a bare import.meta.env becomes an object literal of
+// EVERY VITE_* variable in .env.local, shipping values meant for local use only.
+export const useEmulators = import.meta.env.VITE_USE_EMULATORS === 'true'
 
 const app = initializeApp({
-  apiKey: env.VITE_FIREBASE_API_KEY || 'demo-key',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: useEmulators ? 'demo-auction' : env.VITE_FIREBASE_PROJECT_ID,
-  appId: env.VITE_FIREBASE_APP_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-key',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: useEmulators ? 'demo-auction' : import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 })
 
 // Optional App Check (reCAPTCHA Enterprise, now "Fraud Defense"; Firebase no longer
@@ -21,11 +23,14 @@ const app = initializeApp({
 // key is configured; enforcement itself is switched on in the Firebase console.
 // Must run before any Firestore/Auth request, hence the top-level await. The key is
 // inlined at build time, so builds without it don't include App Check at all.
-if (!useEmulators && env.VITE_APPCHECK_SITE_KEY) {
+if (!useEmulators && import.meta.env.VITE_APPCHECK_SITE_KEY) {
   const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import('firebase/app-check')
-  if (env.DEV && env.VITE_APPCHECK_DEBUG_TOKEN) self.FIREBASE_APPCHECK_DEBUG_TOKEN = env.VITE_APPCHECK_DEBUG_TOKEN
+  // Dev server only; vite.config.js refuses to build while the token is set.
+  if (import.meta.env.DEV && import.meta.env.VITE_APPCHECK_DEBUG_TOKEN) {
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN
+  }
   initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider(env.VITE_APPCHECK_SITE_KEY),
+    provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_APPCHECK_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   })
 }

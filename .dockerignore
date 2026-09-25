@@ -9,3 +9,7 @@ dist
 .rules
 .idea
 .vscode
+.wrangler
+# Private auction data stays out of image layers (see .gitignore)
+data/auction.yml
+public/images

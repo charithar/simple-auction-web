@@ -1,5 +1,6 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { imageUrlOk } from '../lib/images.js'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -8,6 +9,8 @@ const props = defineProps({
 })
 
 const failed = ref(false)
+// Same check as the import, for data written some other way: anything else shows the placeholder.
+const safeSrc = computed(() => (props.src && imageUrlOk(props.src) ? props.src : ''))
 watch(() => props.src, () => (failed.value = false))
 </script>
 
@@ -15,8 +18,8 @@ watch(() => props.src, () => (failed.value = false))
   <div class="flex aspect-square items-center justify-center overflow-hidden bg-white">
     <!-- no-referrer: many hosts block hotlinked images based on the Referer header -->
     <img
-      v-if="src && !failed"
-      :src="src"
+      v-if="safeSrc && !failed"
+      :src="safeSrc"
       :alt="alt"
       :loading="eager ? 'eager' : 'lazy'"
       referrerpolicy="no-referrer"

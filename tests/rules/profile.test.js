@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, setLogLevel } from 'firebase/firestore'
+import { doc, getDoc, setDoc, setLogLevel, Timestamp } from 'firebase/firestore'
 import { syncProfile, checkAdmin, profileName } from '../../src/lib/profile.js'
 
 let env
@@ -39,13 +39,23 @@ describe('syncProfile', () => {
     expect(profile.createdAt.toMillis()).toBe(profile.lastSeen.toMillis())
   })
 
-  it('touches lastSeen on later logins and keeps createdAt', async () => {
+  it('touches lastSeen on later logins and keeps createdAt and name', async () => {
+    const hourAgo = Timestamp.fromMillis(Date.now() - 3_600_000)
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'users/alice'), {
+      name: 'User alice', email: 'alice@example.com', createdAt: hourAgo, lastSeen: hourAgo,
+    }))
+    const { profile } = await syncProfile(db('alice'), fbUser('alice', { displayName: 'Changed' }))
+    expect(profile.createdAt.toMillis()).toBe(hourAgo.toMillis())
+    expect(profile.lastSeen.toMillis()).toBeGreaterThan(hourAgo.toMillis())
+    expect(profile.name).toBe('User alice')
+  })
+
+  it('a second login within the cooldown still loads the profile', async () => {
     const first = await syncProfile(db('alice'), fbUser('alice'))
-    await new Promise((r) => setTimeout(r, 20))
-    const second = await syncProfile(db('alice'), fbUser('alice', { displayName: 'Changed' }))
-    expect(second.profile.createdAt.toMillis()).toBe(first.profile.createdAt.toMillis())
-    expect(second.profile.lastSeen.toMillis()).toBeGreaterThan(first.profile.lastSeen.toMillis())
-    expect(second.profile.name).toBe('User alice')
+    const second = await syncProfile(db('alice'), fbUser('alice'))
+    expect(second.profile).toMatchObject({ name: 'User alice', email: 'alice@example.com' })
+    expect(second.profile.lastSeen.toMillis()).toBe(first.profile.lastSeen.toMillis())
+    expect(second.clockOffsetMs).toBe(0)
   })
 
   it('measures a sane clock offset (emulator shares our clock)', async () => {

@@ -6,8 +6,8 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
 
 - Vue 3 (`<script setup>`), Vite 8, Vue Router (hash history), Pinia, Tailwind CSS v4 (`@tailwindcss/vite`), Firebase JS SDK v12.
 - `js-yaml` v5 has **named exports only**: `import { load } from 'js-yaml'`.
-- Hosting is Cloudflare Pages by direct upload from the user's machine (`npm run deploy:site -- --project-name <name>`: `vite build` from `.env.local`, then `wrangler pages deploy`). Not Firebase Hosting (Spark's 360 MB/day transfer is too tight) and not GitHub Pages (the deployment is private-purpose). CI (`.github/workflows/ci.yml`) only runs tests and needs no secrets; it has a read-only token and Actions pinned to commit SHAs. `public/_headers` sets noindex, no framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'` against clickjacking) and immutable caching for `/assets/*`. Wrangler is a pinned dev dependency (no `npx` download at deploy time). `base: './'` together with hash routing means there's no 404 fallback to manage.
-- Item images must live in `public/` as compressed WebP or on an external URL. Firebase Storage is not available on Spark. External images load with `referrerpolicy="no-referrer"`, and a broken image falls back to a placeholder (`ItemImage.vue`).
+- Hosting is Cloudflare Pages by direct upload from the user's machine (`npm run deploy:site -- --project-name <name>`: `vite build` from `.env.local`, then `wrangler pages deploy`). Not Firebase Hosting (Spark's 360 MB/day transfer is too tight) and not GitHub Pages (the deployment is private-purpose). CI (`.github/workflows/ci.yml`) only runs tests and needs no secrets; it has a read-only token and Actions pinned to commit SHAs. `public/_headers` sets noindex, no framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'` against clickjacking), HSTS, Permissions-Policy, a draft `Content-Security-Policy-Report-Only` (to enforce once the deployed console is clean) and immutable caching for `/assets/*`. Wrangler is a pinned dev dependency (no `npx` download at deploy time). `base: './'` together with hash routing means there's no 404 fallback to manage.
+- Item images must live in `public/` as compressed WebP or on an external URL. Firebase Storage is not available on Spark. Image URLs must be `https://` or site-relative (`lib/images.js`, checked on import and on render). External images load with `referrerpolicy="no-referrer"`, and a broken image falls back to a placeholder (`ItemImage.vue`).
 
 ## Commands
 
@@ -29,7 +29,7 @@ A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100
   - `tabs`/`reload` count Firestore listen targets per page (`trackListens`) to check the multi-tab sharing and the reload cooldown.
 - `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
-- Firebase web config comes from `.env.local` (see `.env.example`). Builds happen only locally (CI doesn't build). `vite.config.js` fails a production build when a required value is missing. Never commit it.
+- Firebase web config comes from `.env.local` (see `.env.example`). Builds happen only locally (CI doesn't build). `vite.config.js` fails a production build when a required value is missing, or when `VITE_APPCHECK_DEBUG_TOKEN` is set. Never commit it. Always read `import.meta.env.VITE_X` directly: a bare `import.meta.env` makes Vite inline every `VITE_*` value into the bundle.
 
 ## Auction file (`data/auction.yml`)
 
@@ -51,7 +51,8 @@ items/{id}/bids/{n}     { amount, uid, createdAt }   n = bidCount as an unpadded
 catalog/items           { items: { 'item-NNN': { order, title, ..., images, startingPrice, endTime, increments? } } }
                         display data for all items in ONE doc (lib/catalog.js); read: signed-in, write: admin.
                         Rebuilt by every import; endTime is kept in sync by extend/set-end (not by anti-snipe extensions).
-users/{uid}             { name, email, createdAt, lastSeen }       owner and admin
+users/{uid}             { name, email, createdAt, lastSeen }       owner and admin; the owner may only touch lastSeen,
+                        at most once a minute (guards the 20k/day write quota; name is fixed at creation)
 admins/{uid}            {}   created by hand in the Firebase console; no client writes
 ```
 

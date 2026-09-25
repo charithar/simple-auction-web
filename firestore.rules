@@ -135,11 +135,15 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.createdAt == request.time
         && request.resource.data.lastSeen == request.time;
+      // Only the login touch (lastSeen), at most once a minute: unlimited updates
+      // would let one bidder burn the daily write quota (Spark: 20k) and stop all
+      // bidding. The name is fixed at creation, so nobody can rename themselves
+      // to look like another bidder in the admin exports.
       allow update: if isGoogleUser()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastSeen'])
-        && validName(request.resource.data.name)
-        && request.resource.data.lastSeen == request.time;
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen'])
+        && request.resource.data.lastSeen == request.time
+        && request.time > resource.data.lastSeen + duration.value(60, 's');
       allow delete: if isAdmin();
     }
 

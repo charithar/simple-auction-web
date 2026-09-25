@@ -15,6 +15,11 @@ export default defineConfig(({ command, mode }) => {
   // parseDomains throws on a malformed VITE_ALLOWED_DOMAINS, failing the build
   // instead of shipping a page that crashes on load.
   parseDomains(env.VITE_ALLOWED_DOMAINS)
+  // The App Check debug token bypasses App Check for whoever holds it; it must never
+  // reach a bundle. Set it only while using `npm run dev`.
+  if (command === 'build' && String(env.VITE_APPCHECK_DEBUG_TOKEN ?? '').trim()) {
+    throw new Error('VITE_APPCHECK_DEBUG_TOKEN is set: remove it from .env.local (and the environment) before building.')
+  }
   if (command === 'build' && env.VITE_USE_EMULATORS !== 'true') {
     const missing = REQUIRED.filter((k) => !String(env[k] ?? '').trim())
     if (missing.length) {

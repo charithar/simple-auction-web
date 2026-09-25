@@ -85,6 +85,19 @@ describe('parseAuctionFile', () => {
     ])
   })
 
+  it('accepts only https:// or site-relative image URLs', () => {
+    const { errors } = parseAuctionFile(file(`
+  - id: 1
+    title: A
+    startingPrice: 100
+    images: [https://x/a.png, images/lot-1.webp, http://x/b.png, 'javascript:alert(1)', //evil/c.png]`))
+    expect(errors).toEqual([
+      'items[0] (id 1): image "http://x/b.png" must be an https:// URL or a relative path like images/lot-0.webp',
+      'items[0] (id 1): image "javascript:alert(1)" must be an https:// URL or a relative path like images/lot-0.webp',
+      'items[0] (id 1): image "//evil/c.png" must be an https:// URL or a relative path like images/lot-0.webp',
+    ])
+  })
+
   it('validates the auction section', () => {
     const { errors } = parseAuctionFile(`
 auction: { minIncrement: 0, stagger: soon }
