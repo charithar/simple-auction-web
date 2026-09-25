@@ -16,6 +16,9 @@
 #   style-src    'unsafe-inline' for the styles reCAPTCHA injects
 # At the same time, add "Cross-Origin-Opener-Policy: same-origin-allow-popups"
 # and check sign-in still works (plain same-origin would break the popup).
+# Expected and harmless during sign-in, with or without our COOP: "Cross-Origin-
+# Opener-Policy policy would block the window.closed call" (Google's popup page
+# sets COOP, so the Firebase SDK can't poll whether the popup was closed).
 /*
   X-Robots-Tag: noindex, nofollow
   X-Frame-Options: DENY
