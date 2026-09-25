@@ -38,10 +38,12 @@ class FakeObserver {
 
 const card = () => ({ dataset: {} })
 
-function setup() {
+function setup({ onScreen = new Set(), hidden = false } = {}) {
   const store = fakeStore()
   const log = vi.fn()
-  const vw = useVisibleWatches(store, { Observer: FakeObserver, log })
+  const vw = useVisibleWatches(store, {
+    Observer: FakeObserver, log, isOnScreen: (el) => onScreen.has(el.dataset.itemId), isHidden: () => hidden,
+  })
   const io = FakeObserver.last
   const mount = (id) => {
     const el = card()
@@ -68,7 +70,7 @@ describe('useVisibleWatches', () => {
   it('reconcile is a no-op (apart from the store check) when everything is watched', () => {
     const { store, io, mount, vw, log } = setup()
     io.fire(mount('item-001'), true)
-    expect(vw.reconcile()).toEqual([])
+    expect(vw.reconcile()).toEqual({ lost: [], unseen: [] })
     expect(store.watchItem).toHaveBeenCalledTimes(1)
     expect(store.checkWatches).toHaveBeenCalledTimes(1)
     expect(log).not.toHaveBeenCalled()
@@ -83,7 +85,7 @@ describe('useVisibleWatches', () => {
     io.fire(b, true)
     store.dropAll()
 
-    expect(vw.reconcile()).toEqual(['item-001', 'item-002'])
+    expect(vw.reconcile().lost).toEqual(['item-001', 'item-002'])
     expect(store.isWatching('item-001', 'visible')).toBe(true)
     expect(store.isWatching('item-002', 'visible')).toBe(true)
     expect(store.isWatching(offScreen.dataset.itemId, 'visible')).toBe(false)
@@ -95,6 +97,37 @@ describe('useVisibleWatches', () => {
     io.fire(a, false)
     expect(store.isWatching('item-001', 'visible')).toBe(false)
     expect(store.counts.get('item-001:visible')).toBe(0)
+  })
+
+  it('watches an on-screen card the observer never reported, after two checks in a row', () => {
+    const onScreen = new Set(['item-001'])
+    const { store, mount, vw, log } = setup({ onScreen })
+    mount('item-001')
+    mount('item-002') // off screen
+    expect(vw.reconcile().unseen).toEqual([]) // first strike: may just not be reported yet
+    expect(vw.reconcile().unseen).toEqual(['item-001'])
+    expect(store.isWatching('item-001', 'visible')).toBe(true)
+    expect(store.isWatching('item-002', 'visible')).toBe(false)
+    expect(log.mock.calls[0][0]).toMatch(/1 on-screen card\(s\) never reported by the observer.*item-001/)
+    expect(vw.reconcile().unseen).toEqual([]) // now held: nothing more to do
+  })
+
+  it('a card reported in time is not flagged', () => {
+    const onScreen = new Set(['item-001'])
+    const { io, mount, vw, log } = setup({ onScreen })
+    const a = mount('item-001')
+    vw.reconcile()
+    io.fire(a, true)
+    expect(vw.reconcile().unseen).toEqual([])
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it('leaves cards alone in a hidden tab', () => {
+    const { store, mount, vw } = setup({ onScreen: new Set(['item-001']), hidden: true })
+    mount('item-001')
+    vw.reconcile()
+    vw.reconcile()
+    expect(store.isWatching('item-001', 'visible')).toBe(false)
   })
 
   it('stop releases everything', () => {

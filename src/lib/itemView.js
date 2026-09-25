@@ -23,6 +23,17 @@ export function pendingView(item, now) {
 // is still loading (the dialog fills it in when the live data arrives).
 export const initialBidText = (view) => (view?.minBid != null ? String(view.minBid) : '')
 
+// The grid's filter tabs. A catalog-only view (no live data yet) can't know about
+// anti-snipe extensions, so it never counts as ended: otherwise "Open" would hide
+// an extended item's card, which then never mounts, never goes live and never
+// comes back, exactly while the item is being fought over.
+export function matchesFilter(filter, view) {
+  if (filter === 'mine') return !!view.standing
+  if (filter === 'outbid') return view.standing === 'outbid'
+  if (filter === 'open') return !(view.live && view.ended)
+  return true
+}
+
 // Picks the right view for a merged store item.
 export const viewFor = (item, ctx) => (item.live ? itemView(item, ctx) : pendingView(item, ctx.now))
 

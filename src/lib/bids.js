@@ -1,5 +1,5 @@
 import { doc, getDocFromServer, runTransaction, serverTimestamp } from 'firebase/firestore'
-import { validateBid, minNextBid, formatMoney } from './auction.js'
+import { validateBid, minNextBid, effectiveEnd, formatMoney } from './auction.js'
 
 export class BidError extends Error {
   constructor(code, message) {
@@ -26,38 +26,65 @@ export function bidErrorMessage(e) {
   }
 }
 
+// "Outbid" message with the item's new price and minimum. If the new leader is
+// this same user (another tab or device), say so instead of "someone else".
+function outbidError(item, settings, uid) {
+  const price = formatMoney(item.currency, item.currentAmount)
+  const min = formatMoney(item.currency, minNextBid(item, settings))
+  return new BidError(
+    'outbid',
+    item.highBidderUid === uid
+      ? `Your bid from another tab or device is already the highest, at ${price}. The minimum to raise it is ${min}.`
+      : `Someone else bid first. The price is now ${price}; the minimum bid is ${min}.`,
+  )
+}
+
+// A bid denied on an unchanged item within this margin of its end is reported as
+// "just closed": the client's clock is only an estimate of the server's.
+const CLOSE_MARGIN_MS = 2000
+
 // Places a bid atomically: updates the item and creates items/{id}/bids/{n}.
-// If another bid commits between our read and our write, the rules evaluate
-// against the newer item and deny ours (permission-denied, which the SDK does
-// not retry). We then re-read and report it as 'outbid' with the new minimum.
+// If another bid commits between our read and our write, either the SDK retries
+// the transaction and our check sees the higher price, or the rules deny ours
+// (permission-denied, which the SDK does not retry). Both are reported as
+// 'outbid' with the new minimum: the first by comparing with seenBidCount (the
+// bid count the bidder was looking at), the second by re-reading the item.
 // A denial while the item is unchanged means a transient failure during a
-// simultaneous bid (seen with the emulator's locking); we retry once.
-// `now` should be the estimated server time (see useNow).
-export async function placeBid(db, { itemId, uid, amount, settings, now = Date.now() }) {
+// simultaneous bid (seen with the emulator's locking), retried once, or the
+// item closing between our check and the commit.
+// `now` should be the estimated server time (Date.now() + clock offset).
+export async function placeBid(db, { itemId, uid, amount, settings, now = Date.now(), seenBidCount = null }) {
   const itemRef = doc(db, 'items', itemId)
+  const offset = now - Date.now()
+  const serverNow = () => Date.now() + offset
   for (let attempt = 1; ; attempt++) {
     let seen = null
     try {
-      return await bidTransaction(db, itemRef, { itemId, uid, amount, settings, now }, (item) => (seen = item))
+      const args = { itemId, uid, amount, settings, now: serverNow(), seenBidCount }
+      return await bidTransaction(db, itemRef, args, (item) => (seen = item))
     } catch (e) {
       if (e.code !== 'permission-denied' || !seen) throw e
       // From the server: with a live listener on this item, getDoc() may answer
       // from a cache that hasn't received the competing bid yet.
       const fresh = (await getDocFromServer(itemRef)).data()
-      if (fresh && fresh.bidCount !== seen.bidCount) {
-        throw new BidError(
-          'outbid',
-          `Someone else bid first. The price is now ${formatMoney(fresh.currency, fresh.currentAmount)}; ` +
-            `the minimum bid is ${formatMoney(fresh.currency, minNextBid(fresh, settings))}.`,
-        )
+      if (fresh && fresh.bidCount !== seen.bidCount) throw outbidError(fresh, settings, uid)
+      if (attempt >= 2) {
+        // Denied twice on an unchanged item. Say why when we can tell: the admin
+        // paused bidding (before our settings listener heard of it), or the item
+        // closed. One extra read, only on this rare path.
+        const current = (await getDocFromServer(doc(db, 'settings', 'auction'))).data()
+        if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently paused.')
+        if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, current ?? settings)) {
+          throw new BidError('ended', 'Bidding on this item has just closed.')
+        }
+        throw e
       }
-      if (attempt >= 2) throw e
       await new Promise((r) => setTimeout(r, 100 + Math.random() * 300))
     }
   }
 }
 
-const bidTransaction = (db, itemRef, { itemId, uid, amount, settings, now }, onRead) =>
+const bidTransaction = (db, itemRef, { itemId, uid, amount, settings, now, seenBidCount }, onRead) =>
   runTransaction(db, async (tx) => {
     const snap = await tx.get(itemRef)
     if (!snap.exists()) throw new BidError('not-found', 'Item not found.')
@@ -65,7 +92,14 @@ const bidTransaction = (db, itemRef, { itemId, uid, amount, settings, now }, onR
     const item = snap.data()
     onRead(item)
     const check = validateBid(item, settings, amount, now)
-    if (!check.ok) throw new BidError(check.code, check.message)
+    if (!check.ok) {
+      // The price moved since the bidder looked (typically the SDK retrying after
+      // a competing bid): that's being outbid, not typing too little.
+      if (check.code === 'too-low' && seenBidCount != null && item.bidCount > seenBidCount) {
+        throw outbidError(item, settings, uid)
+      }
+      throw new BidError(check.code, check.message)
+    }
 
     const n = item.bidCount + 1
     tx.update(itemRef, {

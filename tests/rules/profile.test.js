@@ -55,12 +55,19 @@ describe('syncProfile', () => {
     const second = await syncProfile(db('alice'), fbUser('alice'))
     expect(second.profile).toMatchObject({ name: 'User alice', email: 'alice@example.com' })
     expect(second.profile.lastSeen.toMillis()).toBe(first.profile.lastSeen.toMillis())
-    expect(second.clockOffsetMs).toBe(0)
+    expect(second.clockOffsetMs).toBeNull() // not measured: the caller must not cache it
   })
 
   it('measures a sane clock offset (emulator shares our clock)', async () => {
     const { clockOffsetMs } = await syncProfile(db('alice'), fbUser('alice'))
     expect(Math.abs(clockOffsetMs)).toBeLessThan(2000)
+  })
+
+  it('first sign-in on two devices at once works on both', async () => {
+    for (const uid of ['dan', 'erin', 'fay']) {
+      const results = await Promise.all([syncProfile(db(uid), fbUser(uid)), syncProfile(db(uid), fbUser(uid))])
+      for (const { profile } of results) expect(profile).toMatchObject({ name: `User ${uid}`, email: `${uid}@example.com` })
+    }
   })
 
   it('falls back to the email prefix when there is no display name', async () => {

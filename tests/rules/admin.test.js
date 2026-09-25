@@ -53,7 +53,7 @@ const importAs = async (uid, parsed, opts) => applyImport(db(uid), planImport(pa
 describe('import', () => {
   it('creates settings (bidding closed) and items on first import', async () => {
     const res = await importAs('admin', file(THREE))
-    expect(res).toEqual({ created: 3, updated: 0, removed: 0 })
+    expect(res).toEqual({ created: 3, updated: 0, removed: 0, skipped: [] })
     const settings = await raw(getSettings)
     expect(settings).toMatchObject({ title: 'Test', minIncrement: 50, biddingOpen: false, message: '' })
     const items = await raw(listItems)
@@ -80,6 +80,22 @@ describe('import', () => {
     expect(one).toMatchObject({ title: 'One (edited)', startingPrice: 120, currentAmount: 150, bidCount: 2, highBidderUid: 'bob' })
     expect(two).toMatchObject({ startingPrice: 250, currentAmount: 250, bidCount: 0 }) // no bids: price follows
     expect(await raw(getSettings)).toMatchObject({ biddingOpen: true, message: 'Go!' })
+  })
+
+  it('a bid that lands between preview and apply keeps its price and terms', async () => {
+    await importAs('admin', file(THREE))
+    await raw((fs) => updateSettings(fs, { biddingOpen: true }))
+    const edited = file(THREE.replace('title: One, startingPrice: 100', 'title: One (edited), startingPrice: 150'))
+    const plan = planImport(edited, await raw(listItems)) // preview: no bids yet
+    expect(plan.updates[0].hasBids).toBe(false)
+    await placeBid(db('alice'), { itemId: 'item-001', uid: 'alice', amount: 100, settings: await raw(getSettings) })
+
+    const res = await applyImport(db('admin'), plan)
+    expect(res.skipped).toEqual(['item-001'])
+    const [one] = await raw(listItems)
+    expect(one).toMatchObject({ title: 'One (edited)', startingPrice: 100, currentAmount: 100, bidCount: 1, highBidderUid: 'alice' })
+    const catalog = (await raw((fs) => getDoc(doc(fs, 'catalog/items')))).data()
+    expect(catalog.items['item-001']).toMatchObject({ title: 'One (edited)', startingPrice: 100 })
   })
 
   it('removeMissing deletes only items without bids', async () => {
@@ -152,6 +168,12 @@ describe('item controls', () => {
   it('reset refuses while bidding is open', async () => {
     const [item] = await raw(listItems)
     await expect(resetItemBids(db('admin'), item, await raw(getSettings))).rejects.toThrow(/Pause bidding/)
+  })
+
+  it('reset is refused by the rules while bidding is open, even with stale settings', async () => {
+    const [item] = await raw(listItems)
+    await assertFails(resetItemBids(db('admin'), item, { ...(await raw(getSettings)), biddingOpen: false }))
+    expect((await raw(listItems))[0].bidCount).toBe(2)
   })
 
   it('reset deletes bids and restores the starting price; bidding works again from bid 1', async () => {

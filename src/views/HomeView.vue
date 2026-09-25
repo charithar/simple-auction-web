@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
-import { viewFor } from '../lib/itemView.js'
+import { viewFor, matchesFilter } from '../lib/itemView.js'
 import { allowedDomainsText } from '../lib/access.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
@@ -69,9 +69,7 @@ const counts = computed(() => {
 const visible = computed(() => {
   const q = search.value.trim().toLowerCase()
   let list = rows.value.filter(({ item, view }) => {
-    if (filter.value === 'mine' && !view.standing) return false
-    if (filter.value === 'outbid' && view.standing !== 'outbid') return false
-    if (filter.value === 'open' && view.ended) return false
+    if (!matchesFilter(filter.value, view)) return false
     if (!q) return true
     const haystack = [item.title, item.subtitle, item.detail, item.category, `lot ${item.order}`, ...(item.specs ?? []).map((s) => s.value)]
       .join(' ')

@@ -54,7 +54,10 @@ async function apply() {
   result.value = ''
   try {
     const r = await applyImport(db, plan.value, { removeMissing: removeMissing.value })
-    result.value = `Imported: ${r.created} added, ${r.updated} updated${r.removed ? `, ${r.removed} removed` : ''}. Settings updated.`
+    result.value = `Imported: ${r.created} added, ${r.updated} updated${r.removed ? `, ${r.removed} removed` : ''}. Settings updated.` +
+      (r.skipped.length
+        ? ` ${r.skipped.join(', ')} received bids after the preview, so their price, closing time and increments were left unchanged.`
+        : '')
     parsed.value = null
     fileName.value = ''
     input.value.value = ''

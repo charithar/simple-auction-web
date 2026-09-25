@@ -163,7 +163,10 @@ service cloud.firestore {
           && getAfter(itemPath(itemId)).data.highBidderUid == request.auth.uid
           && getAfter(itemPath(itemId)).data.currentAmount == request.resource.data.amount;
         allow update: if false;
-        allow delete: if isAdmin();
+        // Resetting bids only while bidding is paused: a bid landing mid-reset would
+        // leave an orphaned bid doc whose number blocks the item's next bid.
+        // (lib/admin.js resetItemBids checks the same; this also covers a stale page.)
+        allow delete: if isAdmin() && settings().biddingOpen == false;
       }
     }
 

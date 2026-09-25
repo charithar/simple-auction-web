@@ -81,9 +81,11 @@ export const useAuthStore = defineStore('auth', () => {
         if (gen !== generation) return
         user.value = { uid: fbUser.uid, name: profile.name, email: fbUser.email, photoURL: fbUser.photoURL }
         isAdmin.value = admin
-        clockOffsetMs.value = offset
+        clockOffsetMs.value = offset ?? 0
         error.value = ''
-        writeCached(profileKey(fbUser.uid), { name: profile.name, admin, offset })
+        // No offset measured (profile touched under a minute ago): don't cache, so
+        // the next page load measures it instead of using 0 for 30 minutes.
+        if (offset != null) writeCached(profileKey(fbUser.uid), { name: profile.name, admin, offset })
       } catch (e) {
         if (gen !== generation) return
         console.error('Profile sync failed', e)

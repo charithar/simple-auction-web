@@ -21,6 +21,10 @@ import { useAuthStore } from './auth.js'
 //   refresh-spamming can't multiply reads.
 const HIDDEN_GRACE_MS = 3 * 60_000
 const LINGER_MS = 20_000 // keep a scrolled-away item live briefly to avoid churn
+// Reasons that go live even during the reload cooldown: the item open in the bid
+// dialog needs a current price and a bid form (one listener, and the bidder
+// is about to bid). The grid's cards wait for the cooldown.
+const LIVE_IN_COOLDOWN = ['open']
 
 export const useAuctionStore = defineStore('auction', () => {
   const auth = useAuthStore()
@@ -69,7 +73,7 @@ export const useAuctionStore = defineStore('auction', () => {
 
   function attachItem(id, w) {
     if (w.unsub || paused.value || !auth.user) return
-    if (cooling.value) {
+    if (cooling.value && !LIVE_IN_COOLDOWN.some((r) => w.reasons.has(r))) {
       // Cached copy only (free); the real listener attaches when the cooldown ends.
       cachedItem(db, id).then((doc) => {
         if (cooling.value && watches.has(id) && doc) setLive(id, doc)
@@ -230,13 +234,12 @@ export const useAuctionStore = defineStore('auction', () => {
 
   let hiddenTimer = null
   function onVisibilityChange() {
-    if (!auth.user) return
     if (document.visibilityState === 'hidden') {
       clearTimeout(hiddenTimer)
       hiddenTimer = setTimeout(pauseAll, HIDDEN_GRACE_MS)
     } else {
       clearTimeout(hiddenTimer)
-      if (paused.value) attachAll(auth.user.uid)
+      if (paused.value && auth.user) attachAll(auth.user.uid)
     }
   }
 
@@ -250,6 +253,9 @@ export const useAuctionStore = defineStore('auction', () => {
       { immediate: true },
     )
     document.addEventListener('visibilitychange', onVisibilityChange)
+    // A tab opened in the background gets no visibilitychange until it's shown,
+    // so start its hidden timer now.
+    if (document.visibilityState === 'hidden') onVisibilityChange()
   }
 
   // Optimistically mark an item as bid on (the listener confirms shortly after).

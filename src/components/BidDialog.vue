@@ -101,7 +101,9 @@ async function submit() {
       uid: auth.user.uid,
       amount: bidAmount,
       settings: auction.settings,
-      now: props.now,
+      // Fresh server-time estimate: the 1 s countdown ticker can lag a close.
+      now: Date.now() + auth.clockOffsetMs,
+      seenBidCount: item.value.bidCount,
     })
     auction.noteOwnBid(item.value.id)
     message.value = { kind: 'success', text: `Bid placed: you're the highest bidder at ${money(bidAmount)}.` }

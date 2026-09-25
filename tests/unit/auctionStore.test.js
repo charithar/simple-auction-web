@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 // The store with Firestore replaced: subscribeItem records its listeners so a
@@ -22,7 +23,7 @@ vi.mock('../../src/lib/items.js', () => ({
 
 const { useAuctionStore } = await import('../../src/stores/auction.js')
 const { useAuthStore } = await import('../../src/stores/auth.js')
-const { subscribeItem } = await import('../../src/lib/items.js')
+const { subscribeItem, cachedItem } = await import('../../src/lib/items.js')
 
 let warn
 beforeEach(() => {
@@ -87,5 +88,46 @@ describe('auction store: checkWatches', () => {
     expect(auction.isWatching('item-001', 'visible')).toBe(false)
     expect(auction.checkWatches(Date.now() + 60_000)).toEqual([])
     expect(subscribeItem).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('auction store: reload cooldown', () => {
+  // Two page loads in the last minute: this one is the 3rd, so it starts cooling.
+  beforeEach(() => {
+    const loads = JSON.stringify([Date.now() - 2_000, Date.now() - 1_000])
+    globalThis.localStorage = { getItem: () => loads, setItem: () => {}, removeItem: () => {} }
+    cachedItem.mockClear()
+  })
+  afterEach(() => delete globalThis.localStorage)
+
+  it('grid cards use the cache, but the item open in the dialog goes live', () => {
+    const auction = signedIn()
+    expect(auction.connection).toBe('cooldown')
+    auction.watchItem('item-001', 'visible')
+    expect(subscribeItem).not.toHaveBeenCalled()
+    expect(cachedItem).toHaveBeenCalledTimes(1)
+
+    auction.watchItem('item-002', 'open')
+    auction.watchItem('item-001', 'open') // a cached card opened in the dialog
+    expect(subscribeItem.mock.calls.map((c) => c[1])).toEqual(['item-002', 'item-001'])
+  })
+})
+
+describe('auction store: tab opened in the background', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    delete globalThis.document
+  })
+
+  it('pauses after 3 minutes even though it never got a visibilitychange', async () => {
+    vi.useFakeTimers()
+    globalThis.document = { visibilityState: 'hidden', addEventListener: vi.fn() }
+    const auction = signedIn()
+    auction.init()
+    await nextTick()
+    expect(auction.paused).toBe(false)
+    vi.advanceTimersByTime(3 * 60_000)
+    expect(auction.paused).toBe(true)
+    expect(auction.connection).toBe('paused')
   })
 })

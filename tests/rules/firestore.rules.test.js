@@ -226,6 +226,49 @@ describe('concurrency', () => {
     const item = (await getDoc(doc(db('alice'), 'items/item1'))).data()
     expect(item.bidCount).toBe(1)
   })
+
+  it('the loser of a race is told they were outbid, not that the amount is too low', async () => {
+    const bid = (uid) => placeBid(db(uid), { itemId: 'item1', uid, amount: 5000, settings: SETTINGS, seenBidCount: 0 })
+    const results = await Promise.allSettled([bid('alice'), bid('bob')])
+    const lost = results.find((r) => r.status === 'rejected')
+    expect(lost.reason).toMatchObject({ code: 'outbid' })
+    expect(lost.reason.message).toMatch(/^Someone else bid first\. The price is now Rs\. 5,000; the minimum bid is Rs\. 5,050\.$/)
+  })
+
+  it('a bid on a price that moved since the bidder looked is reported as outbid', async () => {
+    await placeBid(db('bob'), { itemId: 'item1', uid: 'bob', amount: 5000, settings: SETTINGS })
+    const stale = { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS }
+    await expect(placeBid(db('alice'), { ...stale, seenBidCount: 0 })).rejects.toMatchObject({ code: 'outbid' })
+    // Without knowing what the bidder saw, it's still the plain minimum message.
+    await expect(placeBid(db('alice'), stale)).rejects.toMatchObject({ code: 'too-low' })
+  })
+
+  it("the same bidder's other device winning is not reported as someone else", async () => {
+    await placeBid(db('alice'), { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS })
+    const other = placeBid(db('alice'), { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS, seenBidCount: 0 })
+    await expect(other).rejects.toMatchObject({ code: 'outbid' })
+    await expect(other).rejects.toThrow(/^Your bid from another tab or device is already the highest, at Rs\. 5,000\./)
+  })
+
+  it('a bid the server refuses because the item just closed says so', async () => {
+    const end = Date.now() - 500
+    await seed((fs) => setDoc(doc(fs, 'items/item3'), baseItem({ endTime: Timestamp.fromMillis(end) })))
+    // The client's clock estimate is 1.5 s behind, so its own check lets the bid through.
+    const late = placeBid(db('alice'), { itemId: 'item3', uid: 'alice', amount: 5000, settings: SETTINGS, now: end - 1000 })
+    await expect(late).rejects.toMatchObject({ code: 'ended', message: 'Bidding on this item has just closed.' })
+    expect((await getDoc(doc(db('alice'), 'items/item3'))).data().bidCount).toBe(0)
+  })
+
+  it('a bid refused because bidding was just paused says so, even near the end', async () => {
+    const end = Date.now() + 1000
+    await seed(async (fs) => {
+      await setDoc(doc(fs, 'items/item3'), baseItem({ endTime: Timestamp.fromMillis(end) }))
+      await updateDoc(doc(fs, 'settings/auction'), { biddingOpen: false })
+    })
+    // The bidder's page hasn't heard about the pause yet: its settings still say open.
+    const bid = placeBid(db('alice'), { itemId: 'item3', uid: 'alice', amount: 5000, settings: SETTINGS })
+    await expect(bid).rejects.toMatchObject({ code: 'closed', message: 'Bidding is currently paused.' })
+  })
 })
 
 describe('users', () => {
@@ -272,8 +315,10 @@ describe('admin', () => {
     await assertSucceeds(setDoc(doc(db('admin'), 'items/item9'), baseItem()))
     await assertSucceeds(updateDoc(doc(db('admin'), 'settings/auction'), { biddingOpen: false }))
   })
-  it('admins can reset bids', async () => {
+  it('admins can reset bids, but only while bidding is paused', async () => {
     await rawBid(db('alice'), 'item1', { n: 1, amount: 5000, uid: 'alice' })
+    await assertFails(deleteDoc(doc(db('admin'), 'items/item1/bids/1')))
+    await updateDoc(doc(db('admin'), 'settings/auction'), { biddingOpen: false })
     await assertSucceeds(deleteDoc(doc(db('admin'), 'items/item1/bids/1')))
   })
 })

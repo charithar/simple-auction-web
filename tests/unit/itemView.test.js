@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { itemView, viewFor, initialBidText } from '../../src/lib/itemView.js'
+import { itemView, viewFor, initialBidText, matchesFilter } from '../../src/lib/itemView.js'
 
 const NOW = 1_000_000_000_000
 const ts = (ms) => ({ toMillis: () => ms })
@@ -50,5 +50,32 @@ describe('initialBidText', () => {
     expect(pending.minBid).toBeNull()
     expect(initialBidText(pending)).toBe('')
     expect(initialBidText(null)).toBe('')
+  })
+})
+
+describe('matchesFilter', () => {
+  const ctx = { settings, uid: 'alice', myBidItemIds: new Set(), now: NOW }
+  // Scheduled end 30 s ago, last bid 10 s ago: anti-snipe keeps it open for 110 s.
+  const extended = item({ endTime: ts(NOW - 30_000), lastBidAt: ts(NOW - 10_000) })
+
+  it('"Open" keeps an anti-snipe-extended item whose card has no live data yet', () => {
+    const pending = viewFor({ ...extended, live: false }, ctx)
+    expect(pending.ended).toBe(true) // the catalog alone can't know about the extension
+    expect(matchesFilter('open', pending)).toBe(true)
+    expect(matchesFilter('open', viewFor({ ...extended, live: true }, ctx))).toBe(true)
+  })
+
+  it('"Open" drops items the live data says have ended', () => {
+    const ended = item({ endTime: ts(NOW - 300_000), lastBidAt: ts(NOW - 200_000) })
+    expect(matchesFilter('open', viewFor({ ...ended, live: true }, ctx))).toBe(false)
+  })
+
+  it('"My bids" and "Outbid" follow the standing; "All" keeps everything', () => {
+    const outbid = viewFor({ ...item(), live: true }, { ...ctx, myBidItemIds: new Set(['item-001']) })
+    expect(matchesFilter('mine', outbid)).toBe(true)
+    expect(matchesFilter('outbid', outbid)).toBe(true)
+    const none = viewFor({ ...item(), live: true }, ctx)
+    expect(matchesFilter('mine', none)).toBe(false)
+    expect(matchesFilter('all', none)).toBe(true)
   })
 })
