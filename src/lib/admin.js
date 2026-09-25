@@ -169,8 +169,12 @@ export function createUserCache(db) {
 
 // ---------- CSV ----------
 
+// Bidders choose their own names, so text cells starting with = + - @ (or a
+// tab/CR) get a leading ' to stop Excel from running them as formulas.
+// Numbers are left alone so they stay numeric.
 const csvCell = (v) => {
-  const s = v == null ? '' : String(v)
+  let s = v == null ? '' : String(v)
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 

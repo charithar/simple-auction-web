@@ -53,6 +53,20 @@ describe('CSV', () => {
     expect(toCsv(['a', 'b'], [['x,y', 'say "hi"\nnow']])).toBe('﻿a,b\r\n"x,y","say ""hi""\nnow"')
   })
 
+  it('neutralises formulas in text cells but keeps numbers numeric', () => {
+    const row = ['=HYPERLINK("http://x")', '+1', '-2', '@SUM(A1)', '\tx', 'Ann', -5, 7000]
+    expect(toCsv(['h'], [row]).split('\r\n')[1])
+      .toBe(`"'=HYPERLINK(""http://x"")",'+1,'-2,'@SUM(A1),'\tx,Ann,-5,7000`)
+  })
+
+  it('bidder names from the database are neutralised in exports', () => {
+    const items = [{ id: 'item-000', order: 0, title: 'T', subtitle: '', bidCount: 1, currentAmount: 100, currency: 'Rs.', highBidderUid: 'u1', endTime: 0 }]
+    const users = new Map([['u1', { name: '=cmd|"/c calc"!A1', email: 'e@x.test' }]])
+    const csv = winnersCsv(items, { antiSnipeSeconds: 0 }, users, 1)
+    expect(csv).toContain(`"'=cmd|""/c calc""!A1"`)
+    expect(csv).not.toMatch(/,=cmd/)
+  })
+
   it('winnersCsv marks sold / open / no bids', () => {
     const now = END + 10 * 60_000
     const items = [
