@@ -146,12 +146,17 @@ The load test (`npm run load`: 100 simulated bidders, real rules, emulator) meas
 |---|---|
 | Opening the site fresh | ~9 (catalog + the cards on screen + settings) |
 | Re-opening within 30 min | only what changed (local cache) |
-| **Each bid** | **≈ 1 per person looking at that item** (~21–25 with 100 people online) + ~4 |
+| **Each bid** | **≈ 1 per person looking at that item** (~42 with 100 people online and 20 items) + ~4 |
 
-| Day (44 items) | Reads |
+| Day (20 items, measured 2026-09-25) | Reads |
 |---|---|
-| 400 page loads, 1,000 bids, 60 people online on average | ~21k ✅ |
-| 600 page loads, 1,500 bids, 100 people online all day | ~44k ✅ (close to the limit) |
+| 400 page loads, 600 bids, 60 people online on average | ~21k ✅ |
+| 400 page loads, 1,000 bids, 60 people online on average | ~33k ✅ |
+| 400 page loads, 1,000 bids, 100 people online all day | ~49k ⚠ at the limit |
+| 600 page loads, 1,500 bids, 60 people online on average | ~49k ⚠ at the limit |
+| 600 page loads, 1,500 bids, 100 people online all day | ~74k ❌ over |
+
+Fewer items means more reads per bid: each person's screen shows a bigger share of the catalogue, so more people are watching any item that gets a bid. With 44 items the same 1,000-bid day was ~21k. If most bidders will be online all day, watch **Firestore → Usage** and hold the closing until after the quota reset.
 
 **Multiple tabs and refreshing:**
 - The tabs of one browser share a single connection, so extra tabs cost nothing.

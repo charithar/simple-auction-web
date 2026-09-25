@@ -1,6 +1,6 @@
 # CLAUDE.md: Vue + Firebase auction
 
-A rewrite of `../auction-web` (React). Silent auction for about 44 items and 100 bidders, with Google sign-in. **Firebase must stay on the free Spark plan.** That means no Cloud Functions, no Cloud Storage, and no billing account. All enforcement happens in `firestore.rules`.
+A rewrite of `../auction-web` (React). Silent auction for about 20 items (the real `data/auction.yml`; earlier plans had 44) and 100 bidders, with Google sign-in. **Firebase must stay on the free Spark plan.** That means no Cloud Functions, no Cloud Storage, and no billing account. All enforcement happens in `firestore.rules`.
 
 ## Stack
 
@@ -98,14 +98,17 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 ## Free-tier budget (the main risk is reads, not cost)
 
 - Spark allows 50k reads/day. A bid costs 1 read for each listener on *that item*, plus ~4 (transaction and rules lookups).
-- **Measured** (`npm run load`, 100 bidders online, 44 items):
+- **Measured** (`npm run load`, 100 bidders online, 6 cards on screen):
 
-  | | per page load | fan-out per bid | 400 loads + 1,000 bids, 60 online |
-  |---|---|---|---|
-  | `--mode all` (old: everyone watches everything) | 44 | 83 | ~71k ❌ |
-  | `--mode visible` (the app now) | ~9 | ~21–25 | ~21k ✅ |
+  | | items | per page load | fan-out per bid | 400 loads + 1,000 bids, 60 online |
+  |---|---|---|---|---|
+  | `--mode all` (old: everyone watches everything) | 44 | 44 | 83 | ~71k ❌ |
+  | `--mode visible` (the app now) | 44 | ~9 | ~21–25 | ~21k ✅ |
+  | `--mode visible`, real file (2026-09-25) | 20 | ~9 | ~42 | ~33k ✅ |
 
-- Other mitigations: detach on hidden tabs; the persistent cache (re-attaching within 30 minutes bills only changes); items are readable only when signed in; the only `bids` listener is the user's own; App Check is optional.
+- **Fewer items means more fan-out per bid:** 6 cards on screen cover a bigger share of a 20-item catalogue, so more bidders watch each item. With 20 items, 1,000 bids with 100 online all day is ~49k (at the limit), and 600 loads + 1,500 bids with 60 online is also ~49k.
+
+- Other mitigations: detach on hidden tabs; the persistent cache (re-attaching within 30 minutes bills only changes); items are readable only when signed in; the only `bids` listener is the user's own; App Check (optional in the code, enforced for Firestore in production).
 - The quota resets at midnight US Pacific time. Schedule the auction after the reset.
 
 ## Milestones
