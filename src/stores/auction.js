@@ -6,6 +6,7 @@ import {
   cachedCatalog, cachedItem, cachedSettings, cachedMyBidItems,
 } from '../lib/items.js'
 import { registerPageLoad } from '../lib/loadGuard.js'
+import { findStuck } from '../lib/watchHealth.js'
 import { useAuthStore } from './auth.js'
 
 // Read budget design (see CLAUDE.md):
@@ -50,7 +51,7 @@ export const useAuctionStore = defineStore('auction', () => {
   const items = computed(() => [...itemsById.value.values()])
 
   // ---- per-item watches ----
-  const watches = new Map() // id -> { reasons: Map<reason, count>, unsub, lingerTimer }
+  const watches = new Map() // id -> { reasons: Map<reason, count>, unsub, lingerTimer, attachedAt, repairs }
 
   const onError = (e) => {
     console.error('Firestore listener failed', e)
@@ -75,12 +76,14 @@ export const useAuctionStore = defineStore('auction', () => {
       })
       return
     }
+    w.attachedAt = Date.now()
     w.unsub = subscribeItem(db, id, (doc) => setLive(id, doc), onError)
   }
 
   function detachItem(id, w) {
     w.unsub?.()
     w.unsub = null
+    w.attachedAt = null
     if (live.value.has(id)) {
       const next = new Map(live.value)
       next.delete(id)
@@ -91,7 +94,7 @@ export const useAuctionStore = defineStore('auction', () => {
   // Returns a release function. Watches are reference-counted per reason.
   function watchItem(id, reason) {
     let w = watches.get(id)
-    if (!w) watches.set(id, (w = { reasons: new Map(), unsub: null, lingerTimer: null }))
+    if (!w) watches.set(id, (w = { reasons: new Map(), unsub: null, lingerTimer: null, attachedAt: null, repairs: 0 }))
     w.reasons.set(reason, (w.reasons.get(reason) ?? 0) + 1)
     clearTimeout(w.lingerTimer)
     attachItem(id, w)
@@ -111,6 +114,36 @@ export const useAuctionStore = defineStore('auction', () => {
         }, LINGER_MS)
       }
     }
+  }
+
+  const isWatching = (id, reason) => watches.get(id)?.reasons.has(reason) ?? false
+
+  // One line of store state for diagnostics in the console.
+  const debugState = () =>
+    `cooling=${cooling.value} paused=${paused.value} loaded=${loaded.value} signedIn=${!!auth.user} ` +
+    `watches=${watches.size} live=${live.value.size}`
+
+  // Safety net, run every few seconds by HomeView (useVisibleWatches): re-attaches
+  // watched items that have no listener, or whose listener has delivered nothing
+  // for 10 s. Skipped during the reload cooldown and while paused, where missing
+  // live data is expected. Costs no reads unless something is actually repaired.
+  function checkWatches(now = Date.now()) {
+    if (cooling.value || paused.value || !auth.user) return []
+    const stuck = findStuck(watches, live.value, now)
+    for (const { id, problem } of stuck) {
+      const w = watches.get(id)
+      if (problem === 'no-data') {
+        w.unsub?.()
+        w.unsub = null
+        w.repairs++
+      }
+      attachItem(id, w)
+    }
+    if (stuck.length) {
+      const list = stuck.map(({ id, problem }) => `${id} (${problem}; ${[...watches.get(id).reasons.keys()].join('+')})`)
+      console.warn(`[auction] repaired ${stuck.length} watched item(s): ${list.join(', ')} [${debugState()}]`)
+    }
+    return stuck
   }
 
   // Items the user bid on stay live (for winning/outbid badges and filters).
@@ -230,6 +263,6 @@ export const useAuctionStore = defineStore('auction', () => {
 
   return {
     catalog, items, itemsById, settings, myBidItemIds, loaded, paused, error, cooldownUntil, connection,
-    init, watchItem, noteOwnBid,
+    init, watchItem, isWatching, checkWatches, debugState, noteOwnBid,
   }
 })

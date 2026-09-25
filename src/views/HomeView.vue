@@ -8,6 +8,7 @@ import { viewFor } from '../lib/itemView.js'
 import { allowedDomainsText } from '../lib/access.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
+import { useVisibleWatches } from '../composables/useVisibleWatches.js'
 
 const auth = useAuthStore()
 const auction = useAuctionStore()
@@ -38,36 +39,19 @@ const rows = computed(() => {
   return auction.items.map((item) => ({ item, view: viewFor(item, ctx) }))
 })
 
-// Live prices only for cards on (or near) the screen. See stores/auction.js.
-const releases = new Map() // element -> release()
-const observer = new IntersectionObserver(
-  (entries) => {
-    for (const e of entries) {
-      const id = e.target.dataset.itemId
-      if (e.isIntersecting && !releases.has(e.target)) releases.set(e.target, auction.watchItem(id, 'visible'))
-      if (!e.isIntersecting && releases.has(e.target)) {
-        releases.get(e.target)()
-        releases.delete(e.target)
-      }
-    }
-  },
-  { rootMargin: '400px 0px' }, // start loading a little before a card scrolls in
-)
-const vWatchVisible = {
-  mounted(el, { value }) {
-    el.dataset.itemId = value
-    observer.observe(el)
-  },
-  unmounted(el) {
-    observer.unobserve(el)
-    releases.get(el)?.()
-    releases.delete(el)
-  },
+// Live prices only for cards on (or near) the screen, re-checked every few
+// seconds and when the tab comes back (see composables/useVisibleWatches.js).
+const RECONCILE_MS = 5_000
+const { vWatchVisible, reconcile, stop } = useVisibleWatches(auction)
+const reconcileTimer = setInterval(reconcile, RECONCILE_MS)
+const onVisibilityChange = () => {
+  if (document.visibilityState === 'visible') reconcile()
 }
+document.addEventListener('visibilitychange', onVisibilityChange)
 onUnmounted(() => {
-  observer.disconnect()
-  releases.forEach((release) => release())
-  releases.clear()
+  clearInterval(reconcileTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  stop()
 })
 
 const price = (item) => item.currentAmount ?? item.startingPrice

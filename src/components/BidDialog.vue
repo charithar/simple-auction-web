@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { db } from '../firebase.js'
 import { formatMoney, increments } from '../lib/auction.js'
 import { placeBid, bidErrorMessage, BidError } from '../lib/bids.js'
-import { viewFor } from '../lib/itemView.js'
+import { viewFor, initialBidText } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOnline } from '../composables/useOnline.js'
@@ -69,7 +69,7 @@ watch(
     releaseWatch?.()
     releaseWatch = id ? auction.watchItem(id, 'open') : null
     if (id) {
-      amountText.value = view.value ? String(view.value.minBid) : ''
+      amountText.value = initialBidText(view.value)
       await nextTick()
       if (!dialog.value.open) dialog.value.showModal()
     } else if (dialog.value?.open) {

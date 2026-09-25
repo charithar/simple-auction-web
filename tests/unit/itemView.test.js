@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { itemView, viewFor } from '../../src/lib/itemView.js'
+import { itemView, viewFor, initialBidText } from '../../src/lib/itemView.js'
 
 const NOW = 1_000_000_000_000
 const ts = (ms) => ({ toMillis: () => ms })
@@ -38,5 +38,17 @@ describe('itemView', () => {
   })
   it('cannot bid when bidding is closed', () => {
     expect(view(item(), { settings: { ...settings, biddingOpen: false } }).canBid).toBe(false)
+  })
+})
+
+describe('initialBidText', () => {
+  it('is the minimum bid once the price is live', () => {
+    expect(initialBidText(view(item()))).toBe('5050')
+  })
+  it('is empty (not "null") while the price is loading, so the dialog fills it in later', () => {
+    const pending = viewFor({ ...item(), live: false }, { settings, uid: 'alice', myBidItemIds: new Set(), now: NOW })
+    expect(pending.minBid).toBeNull()
+    expect(initialBidText(pending)).toBe('')
+    expect(initialBidText(null)).toBe('')
   })
 })

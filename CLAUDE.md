@@ -77,6 +77,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
   - It listens to `settings/auction`, the **catalog doc** (1 read per page load) and the user's own bids (`collectionGroup` on `uid`).
   - Live `items/{id}` docs are watched per item via `watchItem(id, reason)`, reference-counted per reason: `visible` (the IntersectionObserver in `HomeView`, 400px margin), `mine` (items bid on) and `open` (`BidDialog`).
   - A released item lingers for 20 s before detaching.
+  - Safety net: `composables/useVisibleWatches.js` (the observer, used by `HomeView`) runs `reconcile()` every 5 s and when the tab becomes visible. It re-watches on-screen cards the store no longer counts, then calls the store's `checkWatches()` (`lib/watchHealth.js` `findStuck`): a watched item with no listener is attached, and one whose listener has delivered nothing for 10 s is re-subscribed (at most 3 times). Both log a `[auction] …` console warning with `debugState()`, because it means something went wrong. Skipped during the reload cooldown and while paused. Added after one unexplained case on the live site (2026-09-26): many cards stuck on the loading skeleton with no error, until a reload.
   - `itemsById` merges the catalog with the live docs; `item.live === false` means there's no price yet (`pendingView`, skeleton card).
   - Everything detaches after the tab has been hidden for 3 minutes.
 - **Tabs and reloads** (measured in headless Chrome):

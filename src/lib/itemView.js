@@ -19,6 +19,10 @@ export function pendingView(item, now) {
   }
 }
 
+// Text to pre-fill the bid box with: the minimum bid, or empty while the price
+// is still loading (the dialog fills it in when the live data arrives).
+export const initialBidText = (view) => (view?.minBid != null ? String(view.minBid) : '')
+
 // Picks the right view for a merged store item.
 export const viewFor = (item, ctx) => (item.live ? itemView(item, ctx) : pendingView(item, ctx.now))
 
