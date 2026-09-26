@@ -1,12 +1,14 @@
 import { effectiveEnd, minNextBid, maxNextBid, toMillis } from './auction.js'
 
 // Catalog-only item (live doc not loaded yet): the scheduled end is known,
-// price, bids and anti-snipe extensions are not.
+// price, bids and anti-snipe extensions are not. `confirmedEnded` (set by the
+// store) means the item was seen ended with live data and can't reopen.
 export function pendingView(item, now) {
   const end = toMillis(item.endTime)
   const remaining = end - now
   return {
     live: false,
+    confirmedEnded: item.confirmedEnded === true,
     end,
     remaining,
     ended: remaining <= 0,
@@ -23,14 +25,15 @@ export function pendingView(item, now) {
 // is still loading (the dialog fills it in when the live data arrives).
 export const initialBidText = (view) => (view?.minBid != null ? String(view.minBid) : '')
 
-// The grid's filter tabs. A catalog-only view (no live data yet) can't know about
-// anti-snipe extensions, so it never counts as ended: otherwise "Open" would hide
-// an extended item's card, which then never mounts, never goes live and never
-// comes back, exactly while the item is being fought over.
+// The grid's filter tabs. "Open" hides an item only when its end is certain:
+// from live data, or confirmed ended earlier (see stores/auction.js). A
+// catalog-only view past its scheduled end may still be extended by anti-snipe;
+// hiding it would unmount the card, which then never goes live and never comes
+// back, exactly while the item is being fought over.
 export function matchesFilter(filter, view) {
   if (filter === 'mine') return !!view.standing
   if (filter === 'outbid') return view.standing === 'outbid'
-  if (filter === 'open') return !(view.live && view.ended)
+  if (filter === 'open') return !(view.ended && (view.live || view.confirmedEnded))
   return true
 }
 

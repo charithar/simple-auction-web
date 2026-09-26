@@ -65,6 +65,11 @@ describe('matchesFilter', () => {
     expect(matchesFilter('open', viewFor({ ...extended, live: true }, ctx))).toBe(true)
   })
 
+  it('"Open" drops a catalog-only item the store confirmed ended', () => {
+    const pending = viewFor({ ...extended, live: false, confirmedEnded: true }, ctx)
+    expect(matchesFilter('open', pending)).toBe(false)
+  })
+
   it('"Open" drops items the live data says have ended', () => {
     const ended = item({ endTime: ts(NOW - 300_000), lastBidAt: ts(NOW - 200_000) })
     expect(matchesFilter('open', viewFor({ ...ended, live: true }, ctx))).toBe(false)

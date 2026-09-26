@@ -7,6 +7,7 @@ import {
 } from '../lib/items.js'
 import { registerPageLoad } from '../lib/loadGuard.js'
 import { findStuck } from '../lib/watchHealth.js'
+import { effectiveEnd, toMillis } from '../lib/auction.js'
 import { useAuthStore } from './auth.js'
 
 // Read budget design (see CLAUDE.md):
@@ -31,6 +32,12 @@ export const useAuctionStore = defineStore('auction', () => {
 
   const catalog = shallowRef(null) // [{ id, order, title, ..., endTime }] or null (not set up)
   const live = shallowRef(new Map()) // id -> live item doc
+  // id -> catalog endTime (ms) of items seen ended with live data. Such an item
+  // can't reopen (the rules refuse every later bid) unless an admin moves its
+  // closing time, which also changes the catalog endTime. Lets "Open" keep
+  // hiding it after its listener detaches, instead of the card reappearing,
+  // going live, being hidden and detaching again every 20 s.
+  const confirmedEnded = shallowRef(new Map())
   const settings = ref(null)
   const myBidItemIds = shallowRef(new Set())
   const loaded = ref(false)
@@ -48,7 +55,9 @@ export const useAuctionStore = defineStore('auction', () => {
     const out = new Map()
     for (const c of catalog.value ?? []) {
       const l = live.value.get(c.id)
-      out.set(c.id, l ? { ...c, ...l, live: true } : { ...c, live: false })
+      out.set(c.id, l
+        ? { ...c, ...l, live: true }
+        : { ...c, live: false, confirmedEnded: confirmedEnded.value.get(c.id) === toMillis(c.endTime) })
     }
     return out
   })
@@ -88,6 +97,10 @@ export const useAuctionStore = defineStore('auction', () => {
     w.unsub?.()
     w.unsub = null
     w.attachedAt = null
+    const doc = live.value.get(id)
+    if (doc && settings.value && effectiveEnd(doc, settings.value) <= Date.now() + auth.clockOffsetMs) {
+      confirmedEnded.value = new Map(confirmedEnded.value).set(id, toMillis(doc.endTime))
+    }
     if (live.value.has(id)) {
       const next = new Map(live.value)
       next.delete(id)
@@ -225,6 +238,7 @@ export const useAuctionStore = defineStore('auction', () => {
     mineReleases.clear()
     catalog.value = null
     live.value = new Map()
+    confirmedEnded.value = new Map()
     settings.value = null
     myBidItemIds.value = new Set()
     loaded.value = false

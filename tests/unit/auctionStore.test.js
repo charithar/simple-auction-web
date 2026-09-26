@@ -24,6 +24,7 @@ vi.mock('../../src/lib/items.js', () => ({
 const { useAuctionStore } = await import('../../src/stores/auction.js')
 const { useAuthStore } = await import('../../src/stores/auth.js')
 const { subscribeItem, cachedItem } = await import('../../src/lib/items.js')
+const { viewFor, matchesFilter } = await import('../../src/lib/itemView.js')
 
 let warn
 beforeEach(() => {
@@ -129,5 +130,51 @@ describe('auction store: tab opened in the background', () => {
     vi.advanceTimersByTime(3 * 60_000)
     expect(auction.paused).toBe(true)
     expect(auction.connection).toBe('paused')
+  })
+})
+
+describe('auction store: "Open" filter and ended items', () => {
+  afterEach(() => vi.useRealTimers())
+
+  const ts = (ms) => ({ toMillis: () => ms })
+  const SETTINGS = { biddingOpen: true, minIncrement: 50, maxIncrement: null, antiSnipeSeconds: 120 }
+  const onOpen = (auction) => {
+    const item = auction.itemsById.get('item-001')
+    return matchesFilter('open', viewFor(item, { settings: SETTINGS, uid: 'u1', myBidItemIds: new Set(), now: Date.now() }))
+  }
+  // A card on "Open": watched while shown, released (and detached 20 s later) when hidden.
+  function setup(doc) {
+    vi.useFakeTimers()
+    const auction = signedIn()
+    auction.settings = SETTINGS
+    auction.catalog = [{ id: 'item-001', order: 1, endTime: doc.endTime }]
+    const release = auction.watchItem('item-001', 'visible')
+    listeners.at(-1).onItem({ id: 'item-001', currentAmount: 100, bidCount: 1, ...doc })
+    return { auction, release }
+  }
+
+  it('an item seen ended stays hidden after its listener detaches (no 20 s loop)', () => {
+    const end = ts(Date.now() - 60_000)
+    const { auction, release } = setup({ endTime: end, lastBidAt: ts(Date.now() - 300_000) })
+    expect(onOpen(auction)).toBe(false) // live and ended
+    release() // the card is filtered out
+    vi.advanceTimersByTime(20_000) // linger, then detach
+    expect(auction.itemsById.get('item-001').live).toBe(false)
+    expect(onOpen(auction)).toBe(false) // still hidden: it would otherwise reappear and loop
+    expect(subscribeItem).toHaveBeenCalledTimes(1)
+
+    // An admin moving the closing time changes the catalog endTime: show it again.
+    auction.catalog = [{ id: 'item-001', order: 1, endTime: ts(Date.now() + 300_000) }]
+    expect(onOpen(auction)).toBe(true)
+  })
+
+  it('an item still open when it detaches is shown even after its scheduled end', () => {
+    // Scheduled end 30 s ago, but a bid 10 s ago extends it (anti-snipe 120 s).
+    const { auction, release } = setup({ endTime: ts(Date.now() - 30_000), lastBidAt: ts(Date.now() - 10_000) })
+    expect(onOpen(auction)).toBe(true)
+    release()
+    vi.advanceTimersByTime(20_000)
+    expect(auction.itemsById.get('item-001').live).toBe(false)
+    expect(onOpen(auction)).toBe(true) // may still be extended: keep the card so it can go live
   })
 })

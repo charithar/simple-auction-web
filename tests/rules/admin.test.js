@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp } from 'firebase/firestore'
 import {
   planImport, applyImport, resetItemBids, extendItem, fetchItemBids, fetchAllBids, updateSettings, createUserCache,
 } from '../../src/lib/admin.js'
@@ -96,6 +96,31 @@ describe('import', () => {
     expect(one).toMatchObject({ title: 'One (edited)', startingPrice: 100, currentAmount: 100, bidCount: 1, highBidderUid: 'alice' })
     const catalog = (await raw((fs) => getDoc(doc(fs, 'catalog/items')))).data()
     expect(catalog.items['item-001']).toMatchObject({ title: 'One (edited)', startingPrice: 100 })
+  })
+
+  it('bids reset between a warned preview and the apply: the price follows the new starting price', async () => {
+    await importAs('admin', file(THREE))
+    await raw((fs) => updateSettings(fs, { biddingOpen: true }))
+    await placeBid(db('alice'), { itemId: 'item-001', uid: 'alice', amount: 100, settings: await raw(getSettings) })
+    const plan = planImport(file(THREE.replace('title: One, startingPrice: 100', 'title: One, startingPrice: 150')), await raw(listItems))
+    expect(plan.updates[0]).toMatchObject({ hasBids: true, warnings: ['startingPrice'] })
+
+    await raw((fs) => updateSettings(fs, { biddingOpen: false }))
+    const [one] = await raw(listItems)
+    await resetItemBids(db('admin'), one, await raw(getSettings))
+    await applyImport(db('admin'), plan)
+    expect((await raw(listItems))[0]).toMatchObject({ startingPrice: 150, currentAmount: 150, bidCount: 0 })
+  })
+
+  it('an item deleted between preview and apply is left out of the catalog', async () => {
+    await importAs('admin', file(THREE))
+    const plan = planImport(file(THREE.replace('title: Two,', 'title: Two (edited),')), await raw(listItems))
+    await raw((fs) => deleteDoc(doc(fs, 'items/item-002')))
+
+    await applyImport(db('admin'), plan)
+    const catalog = (await raw((fs) => getDoc(doc(fs, 'catalog/items')))).data()
+    expect(Object.keys(catalog.items).sort()).toEqual(['item-001', 'item-003'])
+    expect((await raw(listItems)).map((i) => i.id)).toEqual(['item-001', 'item-003'])
   })
 
   it('removeMissing deletes only items without bids', async () => {

@@ -27,14 +27,15 @@ export function bidErrorMessage(e) {
 }
 
 // "Outbid" message with the item's new price and minimum. If the new leader is
-// this same user (another tab or device), say so instead of "someone else".
+// this same user (a quick second click, another tab or another device), say so
+// instead of "someone else".
 function outbidError(item, settings, uid) {
   const price = formatMoney(item.currency, item.currentAmount)
   const min = formatMoney(item.currency, minNextBid(item, settings))
   return new BidError(
     'outbid',
     item.highBidderUid === uid
-      ? `Your bid from another tab or device is already the highest, at ${price}. The minimum to raise it is ${min}.`
+      ? `You're already the highest bidder, at ${price}. The minimum to raise your bid is ${min}.`
       : `Someone else bid first. The price is now ${price}; the minimum bid is ${min}.`,
   )
 }
@@ -49,9 +50,11 @@ const CLOSE_MARGIN_MS = 2000
 // (permission-denied, which the SDK does not retry). Both are reported as
 // 'outbid' with the new minimum: the first by comparing with seenBidCount (the
 // bid count the bidder was looking at), the second by re-reading the item.
-// A denial while the item is unchanged means a transient failure during a
-// simultaneous bid (seen with the emulator's locking), retried once, or the
-// item closing between our check and the commit.
+// A denial while the item is unchanged means bidding was closed (maybe only
+// for a moment), the item closed between our check and the commit, or a
+// transient failure during a simultaneous bid (the emulator's locking). From
+// the second denial on, the settings are re-read (one read) to tell these apart;
+// a denial that no longer applies is retried, up to three attempts in all.
 // `now` should be the estimated server time (Date.now() + clock offset).
 export async function placeBid(db, { itemId, uid, amount, settings, now = Date.now(), seenBidCount = null }) {
   const itemRef = doc(db, 'items', itemId)
@@ -69,15 +72,16 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
       const fresh = (await getDocFromServer(itemRef)).data()
       if (fresh && fresh.bidCount !== seen.bidCount) throw outbidError(fresh, settings, uid)
       if (attempt >= 2) {
-        // Denied twice on an unchanged item. Say why when we can tell: the admin
-        // paused bidding (before our settings listener heard of it), or the item
-        // closed. One extra read, only on this rare path.
+        // Say why when we can tell: the admin closed bidding (before our settings
+        // listener heard of it), or the item closed.
         const current = (await getDocFromServer(doc(db, 'settings', 'auction'))).data()
-        if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently paused.')
+        if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently closed.')
         if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, current ?? settings)) {
           throw new BidError('ended', 'Bidding on this item has just closed.')
         }
-        throw e
+        // Open, and not closing: whatever refused us has passed (e.g. a pause of
+        // under a second). Try once more before giving up.
+        if (attempt >= 3) throw e
       }
       await new Promise((r) => setTimeout(r, 100 + Math.random() * 300))
     }

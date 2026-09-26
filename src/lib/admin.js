@@ -105,11 +105,16 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
   }
 
   const kept = new Map() // id -> current item, for items that got bids since the preview
+  const gone = new Set() // items deleted since the preview (e.g. by another admin)
   for (const { item, changes, hasBids } of plan.updates) {
     const ref = doc(db, 'items', item.id)
     await runTransaction(db, async (tx) => {
       const cur = (await tx.get(ref)).data()
-      if (!cur) return
+      if (!cur) {
+        gone.add(item.id)
+        return
+      }
+      gone.delete(item.id)
       const bidsSincePreview = !hasBids && cur.bidCount > 0
       const patch = {}
       for (const f of changes) {
@@ -117,7 +122,9 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
         if (f === 'endTime') patch.endTime = Timestamp.fromDate(item.endTime)
         else patch[f] = item[f] === undefined ? deleteField() : item[f]
       }
-      if (!hasBids && !bidsSincePreview && changes.includes('startingPrice')) patch.currentAmount = item.startingPrice
+      // The price follows the starting price while the item has no bids, judged
+      // now (bids may have landed, or been reset, since the preview).
+      if (cur.bidCount === 0 && changes.includes('startingPrice')) patch.currentAmount = item.startingPrice
       if (bidsSincePreview) kept.set(item.id, cur)
       else kept.delete(item.id)
       if (Object.keys(patch).length) tx.update(ref, patch)
@@ -125,8 +132,9 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
   }
 
   // Rebuild the catalog from the file plus any kept items that aren't in it.
-  // Items that kept their terms keep them in the catalog too.
-  const catalogItems = plan.items.map((it) => {
+  // Items that kept their terms keep them in the catalog too; items deleted
+  // since the preview are left out (a card without a document would never load).
+  const catalogItems = plan.items.filter((it) => !gone.has(it.id)).map((it) => {
     const cur = kept.get(it.id)
     if (!cur) return it
     const merged = { ...it }

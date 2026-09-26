@@ -243,11 +243,11 @@ describe('concurrency', () => {
     await expect(placeBid(db('alice'), stale)).rejects.toMatchObject({ code: 'too-low' })
   })
 
-  it("the same bidder's other device winning is not reported as someone else", async () => {
+  it("the same bidder's own earlier bid winning is not reported as someone else", async () => {
     await placeBid(db('alice'), { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS })
     const other = placeBid(db('alice'), { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS, seenBidCount: 0 })
     await expect(other).rejects.toMatchObject({ code: 'outbid' })
-    await expect(other).rejects.toThrow(/^Your bid from another tab or device is already the highest, at Rs\. 5,000\./)
+    await expect(other).rejects.toThrow(/^You're already the highest bidder, at Rs\. 5,000\. The minimum to raise your bid is Rs\. 5,050\.$/)
   })
 
   it('a bid the server refuses because the item just closed says so', async () => {
@@ -259,7 +259,7 @@ describe('concurrency', () => {
     expect((await getDoc(doc(db('alice'), 'items/item3'))).data().bidCount).toBe(0)
   })
 
-  it('a bid refused because bidding was just paused says so, even near the end', async () => {
+  it('a bid refused because bidding was just closed says so, even near the end', async () => {
     const end = Date.now() + 1000
     await seed(async (fs) => {
       await setDoc(doc(fs, 'items/item3'), baseItem({ endTime: Timestamp.fromMillis(end) }))
@@ -267,7 +267,7 @@ describe('concurrency', () => {
     })
     // The bidder's page hasn't heard about the pause yet: its settings still say open.
     const bid = placeBid(db('alice'), { itemId: 'item3', uid: 'alice', amount: 5000, settings: SETTINGS })
-    await expect(bid).rejects.toMatchObject({ code: 'closed', message: 'Bidding is currently paused.' })
+    await expect(bid).rejects.toMatchObject({ code: 'closed', message: 'Bidding is currently closed.' })
   })
 })
 

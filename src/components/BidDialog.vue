@@ -217,7 +217,7 @@ async function submit() {
             <p v-if="!online" class="text-sm text-amber-800">You're offline. Reconnect to place a bid.</p>
           </form>
           <p v-else-if="view.live" class="mt-3 text-sm text-slate-600">
-            {{ view.ended ? 'Bidding on this item has closed.' : 'Bidding is currently paused.' }}
+            {{ view.ended ? 'Bidding on this item has closed.' : 'Bidding is currently closed.' }}
           </p>
 
           <p
