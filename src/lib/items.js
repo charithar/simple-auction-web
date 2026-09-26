@@ -5,12 +5,16 @@ import { collection, collectionGroup, doc, onSnapshot, orderBy, query, where } f
 // All item docs, live, in lot order. Bidders and admins alike: with ~20 items a
 // page load costs ~20 reads and each bid 1 read per open tab (see CLAUDE.md).
 // onItems also gets whether the snapshot came from the local cache (the store
-// only counts a reconnect as recovered with fresh server data).
+// only counts a reconnect as recovered with fresh server data). With
+// includeMetadataChanges the listener also fires when cached data is merely
+// confirmed by the server (unchanged docs); without it a reconnect would wait
+// for the next real change. Those metadata-only snapshots aren't billed.
 // onChangeCount (optional) receives the number of changed docs per snapshot,
-// i.e. the billed reads; used by the load test.
+// i.e. the billed reads (0 for metadata-only snapshots); used by the load test.
 export const subscribeItems = (db, onItems, onError, onChangeCount) =>
   onSnapshot(
     query(collection(db, 'items'), orderBy('order')),
+    { includeMetadataChanges: true },
     (snap) => {
       onChangeCount?.(snap.docChanges().length)
       onItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })), snap.metadata.fromCache)
