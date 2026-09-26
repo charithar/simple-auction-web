@@ -1,5 +1,7 @@
 # Auction
 
+> **This is the `spark` branch: the free-plan version** (tag `v1.0-spark`), kept for going back to Firebase's Spark plan. The live site runs the Blaze version on `main`. How to maintain both versions and switch the live site between them: [Two versions](https://github.com/charithar/simple-auction-web/blob/main/README.md#6-two-versions) in `main`'s README.
+
 A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on Cloudflare Pages. It's built to run on Firebase's **free Spark plan**: no billing account, no Cloud Functions, no Cloud Storage. Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
 
 - Bidders sign in with Google, see live prices and countdowns, and get "winning" / "outbid" badges.
