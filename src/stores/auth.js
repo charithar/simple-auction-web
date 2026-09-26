@@ -67,6 +67,9 @@ export const useAuthStore = defineStore('auth', () => {
   // Signed in with Google, but the rules refuse everything (emergency stop on):
   // the profile load is retried on a schedule instead of signing the user out.
   const retrying = ref(false)
+  // From "Sign in with Google" until the auth state arrives (popup open, then the
+  // token exchange): the sign-in button shows progress instead of inviting a second click.
+  const signingIn = ref(false)
 
   const signedIn = computed(() => user.value !== null)
 
@@ -81,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
     started = true
     onAuthStateChanged(auth, async (fbUser) => {
       const gen = ++generation
+      signingIn.value = false // from here on busy/retrying/error tell the story
       clearTimeout(retryTimer)
       retryTimer = null
       retrying.value = false
@@ -171,9 +175,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function signIn() {
     error.value = ''
+    signingIn.value = true
     try {
+      // On success the auth state handler clears signingIn as it sets busy: no gap.
       await signInWithPopup(auth, googleProvider)
     } catch (e) {
+      signingIn.value = false
       if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return
       console.error('Sign-in failed', e)
       error.value = signInMessages[e.code]
@@ -185,5 +192,5 @@ export const useAuthStore = defineStore('auth', () => {
 
   const signOut = () => fbSignOut(auth)
 
-  return { user, isAdmin, clockOffsetMs, ready, busy, error, retrying, signedIn, init, whenReady, signIn, signOut }
+  return { user, isAdmin, clockOffsetMs, ready, busy, error, retrying, signingIn, signedIn, init, whenReady, signIn, signOut }
 })

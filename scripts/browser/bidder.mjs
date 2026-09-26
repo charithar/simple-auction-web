@@ -11,7 +11,8 @@ await page.setViewport({ width: 1280, height: 900 })
 const errors = collectConsole(page)
 
 try {
-  await signIn(browser, page, 'smoke0@example.com')
+  const { states } = await signIn(browser, page, 'smoke0@example.com')
+  check(!states.includes('sign-in page'), `from "Sign in with Google" to the grid, no sign-in page in between (${states.join(' → ')})`)
   await sleep(1500)
   await page.screenshot({ path: `${OUT}/bidder-grid.png` })
 

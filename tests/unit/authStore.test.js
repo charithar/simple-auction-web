@@ -273,6 +273,37 @@ describe('auth store: sign-in and sign-out', () => {
     expect(auth.error).toBe('')
   })
 
+  it('signing in shows progress from the click until the auth state takes over', async () => {
+    let finishPopup
+    fb.signInWithPopup.mockReturnValue(new Promise((r) => (finishPopup = r)))
+    let finishSync
+    profile.syncProfile.mockReturnValue(new Promise((r) => (finishSync = r)))
+    const auth = useAuthStore()
+    auth.init()
+    await fb.onAuthChanged(null)
+    const signingIn = auth.signIn()
+    expect(auth).toMatchObject({ signingIn: true, busy: false }) // popup open
+    const handled = fb.onAuthChanged(fbUser()) // the popup closed with an account
+    expect(auth).toMatchObject({ signingIn: false, busy: true }) // no gap between the two
+    finishPopup({})
+    await signingIn
+    expect(auth.signingIn).toBe(false)
+    finishSync({ profile: { name: 'Ann' }, clockOffsetMs: 0 })
+    await handled
+    expect(auth).toMatchObject({ signedIn: true, busy: false, signingIn: false })
+  })
+
+  it('a closed popup or a failed sign-in ends the progress state', async () => {
+    const auth = useAuthStore()
+    for (const code of ['auth/popup-closed-by-user', 'auth/popup-blocked']) {
+      fb.signInWithPopup.mockRejectedValueOnce({ code })
+      const p = auth.signIn()
+      expect(auth.signingIn).toBe(true)
+      await p
+      expect(auth.signingIn).toBe(false)
+    }
+  })
+
   it('closing the popup is not an error', async () => {
     const auth = useAuthStore()
     for (const code of ['auth/popup-closed-by-user', 'auth/cancelled-popup-request']) {

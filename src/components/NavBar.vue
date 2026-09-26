@@ -63,10 +63,11 @@ const route = useRoute()
       <button
         v-else
         type="button"
-        class="rounded-md bg-white px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-900 hover:bg-slate-100"
+        class="rounded-md bg-white px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-900 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-70"
+        :disabled="auth.signingIn"
         @click="auth.signIn()"
       >
-        Sign in with Google
+        {{ auth.signingIn ? 'Signing in…' : 'Sign in with Google' }}
       </button>
     </nav>
   </header>

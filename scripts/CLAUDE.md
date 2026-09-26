@@ -16,14 +16,14 @@ Headless Chrome via puppeteer-core (the local Chrome; `CHROME_PATH` to override)
 
 - **All at once:** `npm run e2e:all` (starts the emulators via `firebase emulators:exec`, needs Java; what CI runs) or `npm run e2e:run` (emulators already running, e.g. `emulators:docker`). `run-all.mjs` seeds `data/auction.sample.yml` (8 lots; the same everywhere; `AUCTION_FILE` tells `e2e:admin`), runs `smoke -- --users 6`, grants `smoke0` admin, starts the dev server on 127.0.0.1:5173, reseeds before each script, runs them in order and stops the server. `E2E_SKIP=webkit,timing` skips scripts.
 - **Scripts** (one at a time: emulators running, then `npm run seed`, `npm run smoke`, `npm run dev`):
-  - `e2e:bidder`: grid, every card priced, bidding, dialog/URL, filters, phone width, offline banner.
+  - `e2e:bidder`: no sign-in page between the click and the grid (`signIn` returns the page states it saw), grid, every card priced, bidding, dialog/URL, filters, phone width, offline banner.
   - `e2e:outbid`: two contexts. A bids (notification opt-in and sample), B outbids A: toast, notification with "another app in front", summary, "Bid again"; two rounds with A's dialog open ("You've been outbid").
   - `e2e:phone`: the whole journey at 390x844 with taps.
   - `e2e:webkit`: Safari's engine on an emulated iPhone 13: sign-in popup, bid, outbid in the open dialog, toast.
   - `e2e:killswitch` (needs the admin): the emergency stop on/off; refused bids; a reload during the stop stays signed in; recovery without reload; an open page with refused listeners goes Live again and shows a rival's bid.
   - `e2e:timing` (~2 min): moves two items' closing times and sets a 30 s anti-snipe window itself (restored after). Final-minutes highlight, a 3-minutes-fast device clock showing the same countdown, anti-sniping seen by both bidders, a dialog open through the close, the "Open" filter, "You won"/"Not won".
   - `e2e:admin` (needs the admin; **changes data**, run last): stats, bid history, All-bids CSV, +5m, End in 2m, pause, reset, import preview/apply, winners CSV, reset all.
-- **Helpers** (`helpers.mjs`): `launch`, `signIn` (retries: the picker's list renders before its handlers bind), `waitForText`, `clickText`, `collectConsole`, `checker`, and emulator helpers that use the REST API as owner: `setItemEndIn`, `setAntiSnipeSeconds`, `clearKillSwitch`; `rival()` bids from Node through the app's `placeBid` (scripts that use it end with `process.exit(0)`); `cardInfo(page, lot)` (text, price, ring, pulse).
+- **Helpers** (`helpers.mjs`): `launch`, `signIn` (retries: the picker's list renders before its handlers bind; returns `{ states }`, what the page showed from the click to the grid), `waitForText`, `clickText`, `collectConsole`, `checker`, and emulator helpers that use the REST API as owner: `setItemEndIn`, `setAntiSnipeSeconds`, `clearKillSwitch`; `rival()` bids from Node through the app's `placeBid` (scripts that use it end with `process.exit(0)`); `cardInfo(page, lot)` (text, price, ring, pulse).
 
 ## Gotchas (all learned the hard way)
 

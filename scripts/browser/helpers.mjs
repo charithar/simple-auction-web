@@ -64,6 +64,23 @@ export async function clickText(page, selector, text) {
 export async function signIn(browser, page, email) {
   await page.goto(APP_URL, { waitUntil: 'networkidle2' })
   await waitForText(page, 'Sign in with Google')
+  // Record what the page shows from here to the grid (signIn returns it): the sign-in
+  // page with a usable "Sign in with Google" must not come back while signing in.
+  await page.evaluate(() => {
+    const state = () => {
+      const text = document.querySelector('main')?.innerText ?? ''
+      if (/Lot 0/.test(text)) return 'grid'
+      const button = [...document.querySelectorAll('main button')].find((b) => /Sign in with Google/.test(b.textContent))
+      if (button && !button.disabled) return 'sign-in page'
+      if (/Signing in/.test(text)) return 'signing in'
+      return `other: ${text.replace(/\s+/g, ' ').slice(0, 40)}`
+    }
+    window.__signInStates = []
+    new MutationObserver(() => {
+      const s = state()
+      if (window.__signInStates.at(-1) !== s) window.__signInStates.push(s)
+    }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true })
+  })
   const popupP = new Promise((res) => browser.once('targetcreated', async (t) => res(await t.page())))
   await clickText(page, 'main button', 'Sign in with Google')
   // Fail instead of hanging when no popup opens (e.g. the app refused to start sign-in).
@@ -86,6 +103,7 @@ export async function signIn(browser, page, email) {
   }
   if (!popup.isClosed()) throw new Error(`Could not sign in as ${email} (does the emulator account exist?)`)
   await waitForText(page, 'Lot 0')
+  return { states: await page.evaluate(() => window.__signInStates) }
 }
 
 // Collects console errors/warnings and page errors, ignoring the noise the checks

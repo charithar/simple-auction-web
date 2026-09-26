@@ -81,9 +81,9 @@ const filters = computed(() => [
   <div v-if="!auth.ready" class="py-16 text-center text-slate-500">Loading…</div>
 
   <!-- Items are readable only when signed in (keeps outsiders from running up reads). -->
-  <!-- Signed in with Google, profile not loaded yet: the auth store retries (a refusal
-       during the emergency stop shows its banner; a first-sign-in hiccup doesn't). -->
-  <div v-else-if="auth.retrying" class="py-16 text-center text-slate-500" role="status">
+  <!-- Signed in with Google, profile not loaded yet (busy), or the auth store retries (a
+       refusal during the emergency stop shows its banner; a first-sign-in hiccup doesn't). -->
+  <div v-else-if="auth.busy || auth.retrying" class="py-16 text-center text-slate-500" role="status">
     {{ auth.error ? 'Reconnecting…' : 'Signing in…' }}
   </div>
 
@@ -92,10 +92,11 @@ const filters = computed(() => [
     <p class="mt-2 text-slate-600">Sign in with your {{ allowedDomainsText() }} Google account to see the items and place bids.</p>
     <button
       type="button"
-      class="mt-6 rounded-md bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-700"
+      class="mt-6 rounded-md bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-700 disabled:cursor-wait disabled:opacity-70"
+      :disabled="auth.signingIn"
       @click="auth.signIn()"
     >
-      Sign in with Google
+      {{ auth.signingIn ? 'Signing in…' : 'Sign in with Google' }}
     </button>
   </section>
 
