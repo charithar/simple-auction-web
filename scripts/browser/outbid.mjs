@@ -54,6 +54,7 @@ try {
   await openLot(B.page, LOT)
   const rb = await bid(B.page)
   check(/^Bid placed/.test(rb), `B outbids A: "${rb}"`)
+  await B.page.keyboard.press('Escape')
 
   await A.page.waitForSelector('[aria-live] [role=status]', { timeout: 10_000 })
   const toast = await A.page.$eval('[aria-live] [role=status]', (e) => e.innerText)
@@ -67,6 +68,26 @@ try {
   check(new RegExp(`Lot ${LOT}(\\D|$)`).test(title), '"Bid again" opens that item\'s dialog')
   await sleep(300)
   check(!(await A.page.$('[aria-live] [role=status]')), 'the toast is dismissed')
+
+  // A keeps the dialog open after bidding; B outbids A: the green "Bid placed"
+  // message must turn into "You've been outbid" with the live price.
+  await A.page.keyboard.press('Escape')
+  const LOT2 = 5
+  await openLot(A.page, LOT2)
+  const ra2 = await bid(A.page)
+  check(/^Bid placed/.test(ra2), `A bids on lot ${LOT2} and keeps the dialog open: "${ra2}"`)
+  const status = () => A.page.$eval('dialog[open] [role=status]', (e) => ({ text: e.innerText, red: /rose/.test(e.className) }))
+  for (const round of [1, 2]) {
+    await openLot(B.page, LOT2)
+    const rb2 = await bid(B.page)
+    await B.page.keyboard.press('Escape')
+    const price = rb2.match(/Rs\. [\d,]+/)?.[0]
+    await A.page.waitForFunction((p) => document.querySelector('dialog[open] [role=status]')?.innerText.includes(`The price is now ${p}`),
+      { polling: 250, timeout: 10_000 }, price)
+    const s2 = await status()
+    check(s2.red && /^You've been outbid\. The price is now Rs\. [\d,]+; the minimum bid is Rs\. [\d,]+\.$/.test(s2.text),
+      `B outbids A (round ${round}): A's open dialog says "${s2.text}"`)
+  }
 
   const errors = [...A.errors, ...B.errors].filter((e) => !/403|permission-denied/.test(e))
   check(errors.length === 0, `no console errors${errors.length ? `: ${errors.slice(0, 3).join(' | ')}` : ''}`)

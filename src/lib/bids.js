@@ -49,6 +49,12 @@ function unavailableIfRefused(e) {
   throw e
 }
 
+// For the bid dialog: the bidder's own bid there has since been outbid. Built
+// from the live item, so the price and minimum stay current.
+export const outbidNotice = (item, settings) =>
+  `You've been outbid. The price is now ${formatMoney(item.currency, item.currentAmount)}; ` +
+  `the minimum bid is ${formatMoney(item.currency, minNextBid(item, settings))}.`
+
 // A bid denied on an unchanged item within this margin of its end is reported as
 // "just closed": the client's clock is only an estimate of the server's.
 const CLOSE_MARGIN_MS = 2000

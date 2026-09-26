@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { db } from '../firebase.js'
 import { formatMoney, increments } from '../lib/auction.js'
-import { placeBid, bidErrorMessage, BidError } from '../lib/bids.js'
+import { placeBid, bidErrorMessage, BidError, outbidNotice } from '../lib/bids.js'
 import { viewFor, initialBidText } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useAuthStore } from '../stores/auth.js'
@@ -26,6 +26,15 @@ const imageIndex = ref(0)
 const amountText = ref('')
 const submitting = ref(false)
 const message = ref(null) // { kind: 'error' | 'success', text }
+// "Bid placed" goes stale when someone else takes the lead while the dialog is
+// open: show that the bidder has been outbid instead (live price and minimum).
+const shownMessage = computed(() => {
+  const it = item.value
+  if (message.value?.kind === 'success' && it?.highBidderUid != null && it.highBidderUid !== auth.user?.uid) {
+    return { kind: 'error', text: outbidNotice(it, auction.settings) }
+  }
+  return message.value
+})
 
 const item = computed(() => (props.itemId ? auction.itemsById.get(props.itemId) : null))
 const view = computed(() =>
@@ -224,15 +233,15 @@ async function submit() {
           </p>
 
           <p
-            v-if="message"
+            v-if="shownMessage"
             role="status"
-            :class="message.kind === 'error' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'"
+            :class="shownMessage.kind === 'error' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'"
             class="mt-3 rounded-md px-3 py-2 text-sm"
           >
-            {{ message.text }}
+            {{ shownMessage.text }}
           </p>
           <button
-            v-if="message?.kind === 'success' && canAskNotify"
+            v-if="shownMessage?.kind === 'success' && canAskNotify"
             type="button"
             class="mt-2 text-sm font-medium text-sky-700 underline-offset-2 hover:underline"
             @click="askNotify"

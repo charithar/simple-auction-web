@@ -16,7 +16,7 @@ vi.mock('firebase/firestore', () => ({
   }),
 }))
 
-const { placeBid, bidErrorMessage, BidError } = await import('../../src/lib/bids.js')
+const { placeBid, bidErrorMessage, BidError, outbidNotice } = await import('../../src/lib/bids.js')
 
 const ts = (ms) => ({ toMillis: () => ms })
 const SETTINGS = { biddingOpen: true, minIncrement: 50, maxIncrement: null, antiSnipeSeconds: 120 }
@@ -57,5 +57,15 @@ describe('placeBid edge paths', () => {
     state.settingsNow = undefined
     const bid = placeBid({}, { itemId: 'item-001', uid: 'alice', amount: 5000, settings: SETTINGS })
     await expect(bid).rejects.toMatchObject({ code: 'ended', message: 'Bidding on this item has just closed.' })
+  })
+})
+
+describe('outbidNotice', () => {
+  it('tells the bidder they were outbid, with the current price and minimum', () => {
+    const settings = { minIncrement: 50 }
+    expect(outbidNotice({ currency: 'Rs.', currentAmount: 7_250, bidCount: 3 }, settings))
+      .toBe("You've been outbid. The price is now Rs. 7,250; the minimum bid is Rs. 7,300.")
+    expect(outbidNotice({ currency: 'Rs.', currentAmount: 7_250, bidCount: 3, minIncrement: 250 }, settings))
+      .toBe("You've been outbid. The price is now Rs. 7,250; the minimum bid is Rs. 7,500.")
   })
 })
