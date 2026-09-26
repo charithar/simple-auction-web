@@ -3,7 +3,7 @@
 A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on Cloudflare Pages. It runs on Firebase's **Blaze (pay-as-you-go) plan**, where an auction of ~20 items and ~100 bidders costs about a cent in reads, and uses no Cloud Functions and no Cloud Storage. (A version built for the free Spark plan, with a more complex read-saving design, is kept on the `spark` branch.) Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
 
 - Bidders sign in with Google, see live prices and countdowns, and get "winning" / "outbid" badges.
-- An outbid alert (toast, plus a browser notification when the tab is in the background), a "My bids" summary with totals, and highlighted final minutes.
+- An outbid alert (toast, plus a browser notification when the bidder is in another tab or app), a "My bids" summary with totals, and highlighted final minutes.
 - Anti-sniping: a bid in the last *N* seconds keeps that item open until *N* seconds after the bid.
 - Increments: a global minimum and maximum, which individual items can override.
 - Admin page: import the auction file with a preview, open or pause bidding, extend or set closing times, see bid history and leading bidders, reset an item, and export winners and bids to CSV.
@@ -126,6 +126,7 @@ items:
 - [ ] Test on a phone. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
 - [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, pause, then Admin → **Reset all bids** (bidding must be paused) to put every item back to its starting price with no bids, and re-check prices. The items, closing times and bidder accounts are kept; re-import the auction file afterwards if you also want the original closing times back.
 - [ ] Decide what to post in the bidding-paused message and how you'll contact winners.
+- [ ] Tell bidders about outbid notifications: after their first bid the dialog offers "Notify me if I'm outbid…"; allowing it sends a sample notification at once. The auction tab must stay open (it can be in the background). No sample? Allow notifications for the browser in the computer's settings (Windows: Settings → System → Notifications; Mac: System Settings → Notifications) and turn off Do not disturb / Focus. iPhone Safari doesn't support them.
 
 ## 4. On the day
 

@@ -7,7 +7,7 @@ import { viewFor, initialBidText } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useOnline } from '../composables/useOnline.js'
-import { notificationsSupported } from '../composables/useOutbidAlerts.js'
+import { notificationsSupported, showTestNotification } from '../composables/useOutbidAlerts.js'
 import ItemImage from './ItemImage.vue'
 import StandingBadge from './StandingBadge.vue'
 import TimeLeft from './TimeLeft.vue'
@@ -71,6 +71,7 @@ watch(
   () => props.itemId,
   async (id) => {
     message.value = null
+    notifyNote.value = ''
     imageIndex.value = 0
     if (id) {
       amountText.value = initialBidText(view.value)
@@ -94,12 +95,23 @@ watch(
   },
 )
 
+// The native "close" event arrives a moment after the dialog closes. If another
+// item was opened in between, the dialog is open again: ignore the late event,
+// or it would close the new item too.
+function onClose() {
+  if (!dialog.value.open) emit('close')
+}
+
 // After a bid: offer a browser notification for when this bidder is outbid while
 // the tab is in the background (HomeView's useOutbidAlerts sends it).
 const canAskNotify = ref(false)
+const notifyNote = ref('')
 async function askNotify() {
   canAskNotify.value = false
-  await Notification.requestPermission()
+  const permission = await Notification.requestPermission()
+  notifyNote.value = permission === 'granted' && showTestNotification()
+    ? "Outbid alerts are on: we just sent a sample. Didn't see it? Allow notifications for your browser in your computer's settings and turn off Do not disturb."
+    : "Notifications are blocked for this site. To turn them on later, use the icon left of the address bar."
 }
 
 async function submit() {
@@ -133,7 +145,7 @@ async function submit() {
   <dialog
     ref="dialog"
     class="m-auto w-[calc(100%-1rem)] max-w-3xl rounded-xl p-0 shadow-2xl backdrop:bg-slate-900/60"
-    @close="emit('close')"
+    @close="onClose"
     @click.self="dialog.close()"
   >
     <div v-if="item && view" class="grid max-h-[92dvh] grid-cols-1 overflow-y-auto md:grid-cols-2">
@@ -246,8 +258,9 @@ async function submit() {
             class="mt-2 text-sm font-medium text-sky-700 underline-offset-2 hover:underline"
             @click="askNotify"
           >
-            Notify me if I'm outbid while this tab is in the background
+            Notify me if I'm outbid while I'm in another tab or app
           </button>
+          <p v-if="notifyNote" class="mt-2 text-xs text-slate-600" role="status">{{ notifyNote }}</p>
         </div>
 
         <dl v-if="item.specs?.length" class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

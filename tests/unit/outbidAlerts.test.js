@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref, nextTick } from 'vue'
-import { useOutbidAlerts, notificationsSupported } from '../../src/composables/useOutbidAlerts.js'
+import { useOutbidAlerts, notificationsSupported, showTestNotification } from '../../src/composables/useOutbidAlerts.js'
 
 // Grid rows as HomeView builds them: [{ item, view: { standing } }].
 // Someone else ('rival') leads unless the test says otherwise.
@@ -24,7 +24,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   FakeNotification.permission = 'granted'
   FakeNotification.shown = []
-  doc = { visibilityState: 'visible' }
+  doc = { visibilityState: 'visible', focused: true, hasFocus: () => doc.focused }
   vi.stubGlobal('document', doc)
   vi.stubGlobal('window', { Notification: FakeNotification, focus: vi.fn() })
   vi.stubGlobal('Notification', FakeNotification)
@@ -101,7 +101,14 @@ describe('useOutbidAlerts', () => {
     expect(n.close).toHaveBeenCalled()
   })
 
-  it('no browser notification while the tab is visible, or without permission', async () => {
+  it('a browser notification also when the tab is visible but another window is in front', async () => {
+    const { set } = await setup([row(item('a'), 'winning')])
+    doc.focused = false
+    await set([row(item('a'), 'outbid')])
+    expect(FakeNotification.shown.map((n) => n.title)).toEqual(['You were outbid'])
+  })
+
+  it('no browser notification while the tab is visible and focused, or without permission', async () => {
     const { set } = await setup([row(item('a'), 'winning'), row(item('b'), 'winning')])
     await set([row(item('a'), 'outbid'), row(item('b'), 'winning')]) // visible
     doc.visibilityState = 'hidden'
@@ -133,5 +140,21 @@ describe('notificationsSupported', () => {
     expect(notificationsSupported()).toBe(false)
     vi.stubGlobal('window', undefined)
     expect(notificationsSupported()).toBe(false)
+  })
+})
+
+describe('showTestNotification', () => {
+  it('sends a sample right after notifications are allowed', () => {
+    expect(showTestNotification()).toBe(true)
+    expect(FakeNotification.shown.map((n) => [n.title, n.options.tag])).toEqual([['Outbid alerts are on', 'auction-test']])
+  })
+
+  it('sends nothing without permission or without the Notification API', () => {
+    FakeNotification.permission = 'denied'
+    expect(showTestNotification()).toBe(false)
+    vi.stubGlobal('window', {})
+    FakeNotification.permission = 'granted'
+    expect(showTestNotification()).toBe(false)
+    expect(FakeNotification.shown).toEqual([])
   })
 })
