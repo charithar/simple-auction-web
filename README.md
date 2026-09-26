@@ -124,7 +124,7 @@ items:
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
 - [ ] Budget alert set up (setup step 7), and App Check enforced.
 - [ ] Test on a phone. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
-- [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, pause, **reset those test bids** (bidding must be paused), and re-check prices.
+- [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, pause, then Admin → **Reset all bids** (bidding must be paused) to put every item back to its starting price with no bids, and re-check prices. The items, closing times and bidder accounts are kept; re-import the auction file afterwards if you also want the original closing times back.
 - [ ] Decide what to post in the bidding-paused message and how you'll contact winners.
 
 ## 4. On the day

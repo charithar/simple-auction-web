@@ -2,9 +2,10 @@
 import { readFileSync } from 'node:fs'
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
 import {
-  planImport, applyImport, resetItemBids, extendItem, fetchItemBids, fetchAllBids, updateSettings, createUserCache,
+  planImport, applyImport, resetItemBids, resetAllBids, extendItem, fetchItemBids, fetchAllBids, updateSettings,
+  createUserCache,
 } from '../../src/lib/admin.js'
 import { placeBid } from '../../src/lib/bids.js'
 import { parseAuctionFile } from '../../src/lib/importItems.js'
@@ -138,6 +139,74 @@ describe('extend', () => {
     await extendItem(db('admin'), item, settings, 10 * 60_000)
     const [after] = await raw(listItems)
     expect(after.endTime.toMillis()).toBeGreaterThanOrEqual(item.endTime.toMillis() + 10 * 60_000)
+  })
+})
+
+describe('reset all bids', () => {
+  const allBids = () => raw((fs) => getDocs(collection(fs, 'items', 'item-001', 'bids')).then((a) =>
+    Promise.all(['item-002', 'item-003'].map((id) => getDocs(collection(fs, 'items', id, 'bids')))).then((r) => a.size + r[0].size + r[1].size)))
+
+  beforeEach(async () => {
+    await importAs('admin', file(THREE))
+    await raw((fs) => updateSettings(fs, { biddingOpen: true }))
+    const settings = await raw(getSettings)
+    await placeBid(db('alice'), { itemId: 'item-001', uid: 'alice', amount: 100, settings })
+    await placeBid(db('bob'), { itemId: 'item-001', uid: 'bob', amount: 150, settings })
+    await placeBid(db('bob'), { itemId: 'item-003', uid: 'bob', amount: 300, settings })
+  })
+
+  it('refuses while bidding is open, in the app and (with stale settings) in the rules', async () => {
+    const items = await raw(listItems)
+    await expect(resetAllBids(db('admin'), items, await raw(getSettings))).rejects.toThrow(/Pause bidding/)
+    await assertFails(resetAllBids(db('admin'), items, { ...(await raw(getSettings)), biddingOpen: false }))
+    expect(await allBids()).toBe(3)
+  })
+
+  it('non-admins cannot reset', async () => {
+    await raw((fs) => updateSettings(fs, { biddingOpen: false }))
+    await assertFails(resetAllBids(db('alice'), await raw(listItems), await raw(getSettings)))
+  })
+
+  it('puts every item back to its starting state and keeps everything else', async () => {
+    await updateSettings(db('admin'), { biddingOpen: false, message: 'Back soon' })
+    const before = await raw(listItems)
+    const res = await resetAllBids(db('admin'), before, await raw(getSettings))
+    expect(res).toEqual({ items: 3, bids: 3 })
+    expect(await allBids()).toBe(0)
+    const after = await raw(listItems)
+    expect(after.map((i) => [i.id, i.currentAmount, i.bidCount, i.highBidderUid, i.lastBidAt]))
+      .toEqual([['item-001', 100, 0, null, null], ['item-002', 200, 0, null, null], ['item-003', 300, 0, null, null]])
+    after.forEach((it, i) => expect(it).toMatchObject({ title: before[i].title, endTime: before[i].endTime, specs: before[i].specs }))
+    expect(await raw(getSettings)).toMatchObject({ biddingOpen: false, message: 'Back soon', minIncrement: 50 })
+    expect((await raw((fs) => getDoc(doc(fs, 'users/alice')))).exists()).toBe(true)
+    expect((await raw((fs) => getDoc(doc(fs, 'admins/admin')))).exists()).toBe(true)
+  })
+
+  it('bidding starts again from bid 1 at the starting price', async () => {
+    await updateSettings(db('admin'), { biddingOpen: false })
+    await resetAllBids(db('admin'), await raw(listItems), await raw(getSettings))
+    await updateSettings(db('admin'), { biddingOpen: true })
+    await expect(placeBid(db('bob'), { itemId: 'item-001', uid: 'bob', amount: 100, settings: await raw(getSettings) }))
+      .resolves.toEqual({ bidCount: 1, amount: 100 })
+  })
+
+  it('handles an item with more bids than one batch can delete (> 500)', async () => {
+    const N = 520
+    await raw(async (fs) => {
+      for (let start = 1; start <= N; start += 400) {
+        const batch = writeBatch(fs)
+        for (let n = start; n < Math.min(start + 400, N + 1); n++) {
+          batch.set(doc(fs, 'items', 'item-002', 'bids', String(n)), { amount: 200 + n, uid: 'bob', createdAt: Timestamp.now() })
+        }
+        await batch.commit()
+      }
+      await setDoc(doc(fs, 'items/item-002'), { currentAmount: 200 + N, bidCount: N, highBidderUid: 'bob', lastBidAt: Timestamp.now() }, { merge: true })
+    })
+    await updateSettings(db('admin'), { biddingOpen: false })
+    const item2 = (await raw(listItems))[1]
+    expect(await resetItemBids(db('admin'), item2, await raw(getSettings))).toBe(N)
+    expect((await raw(listItems))[1]).toMatchObject({ currentAmount: 200, bidCount: 0, highBidderUid: null })
+    expect(await raw((fs) => getDocs(collection(fs, 'items', 'item-002', 'bids')).then((q) => q.size))).toBe(0)
   })
 })
 

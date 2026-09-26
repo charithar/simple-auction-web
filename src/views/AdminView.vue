@@ -11,6 +11,7 @@ import { downloadText, stamp } from '../lib/download.js'
 import AdminControls from '../components/admin/AdminControls.vue'
 import AdminImport from '../components/admin/AdminImport.vue'
 import AdminItemRow from '../components/admin/AdminItemRow.vue'
+import AdminResetAll from '../components/admin/AdminResetAll.vue'
 
 const auth = useAuthStore()
 const auction = useAuctionStore()
@@ -141,6 +142,7 @@ async function exportBids() {
         :settings="auction.settings"
         :class="{ 'lg:col-span-2': !auction.settings }"
       />
+      <AdminResetAll v-if="auction.settings && items.length" :items="items" :settings="auction.settings" />
     </div>
 
     <section v-if="auction.settings && items.length" class="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">

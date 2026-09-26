@@ -12,6 +12,9 @@ const STATIC_FIELDS = [
   'order', 'title', 'subtitle', 'category', 'condition', 'specs', 'detail', 'images',
   'currency', 'startingPrice', 'endTime', 'minIncrement', 'maxIncrement',
 ]
+// Firestore batches hold at most 500 writes; stay below with room to spare.
+const BATCH_SIZE = 450
+
 // Changing these after bids exist changes the terms bidders agreed to.
 const SENSITIVE_WITH_BIDS = ['startingPrice', 'endTime', 'minIncrement', 'maxIncrement']
 
@@ -84,10 +87,9 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
   }
 
   await setDoc(settingsRef, settings, { merge: true })
-  // Firestore batches hold at most 500 writes.
-  for (let i = 0; i < ops.length; i += 450) {
+  for (let i = 0; i < ops.length; i += BATCH_SIZE) {
     const batch = writeBatch(db)
-    ops.slice(i, i + 450).forEach((op) => op(batch))
+    ops.slice(i, i + BATCH_SIZE).forEach((op) => op(batch))
     await batch.commit()
   }
 
@@ -137,17 +139,39 @@ export const setItemEnd = (db, itemId, date) => writeEnd(db, itemId, Timestamp.f
 
 // Deletes all bids on an item and restores its starting price.
 // Only safe while bidding is paused: a bid landing mid-reset would leave an
-// orphaned bid doc whose number blocks that item's future bids.
+// orphaned bid doc whose number blocks that item's future bids (the rules
+// refuse bid deletes while bidding is open).
+// Bids go first, in chunks (a batch holds at most 500 writes), and the item
+// last: if the reset stops midway, the item still counts its bids and running
+// it again finishes the job. Resetting the item first could leave bid numbers
+// behind that block new bids.
 export async function resetItemBids(db, item, settings) {
   if (settings.biddingOpen) throw new Error('Pause bidding before resetting bids.')
-  const bids = await getDocs(collection(db, 'items', item.id, 'bids'))
+  const bids = (await getDocs(collection(db, 'items', item.id, 'bids'))).docs
+  let i = 0
+  for (; bids.length - i > BATCH_SIZE; i += BATCH_SIZE) {
+    const batch = writeBatch(db)
+    bids.slice(i, i + BATCH_SIZE).forEach((d) => batch.delete(d.ref))
+    await batch.commit()
+  }
   const batch = writeBatch(db)
-  bids.docs.forEach((d) => batch.delete(d.ref))
+  bids.slice(i).forEach((d) => batch.delete(d.ref))
   batch.update(doc(db, 'items', item.id), {
     currentAmount: item.startingPrice, bidCount: 0, highBidderUid: null, lastBidAt: null,
   })
   await batch.commit()
-  return bids.size
+  return bids.length
+}
+
+// Resets every item to its state before the first bid: all bids deleted,
+// starting price, no leader, no anti-snipe extension. Items, their closing
+// times, settings, bidder profiles and admins are kept. Only while bidding is
+// paused. Returns { items, bids } counts.
+export async function resetAllBids(db, items, settings) {
+  if (settings.biddingOpen) throw new Error('Pause bidding before resetting bids.')
+  let bids = 0
+  for (const item of items) bids += await resetItemBids(db, item, settings)
+  return { items: items.length, bids }
 }
 
 export async function fetchItemBids(db, itemId) {

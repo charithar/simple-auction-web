@@ -109,6 +109,13 @@ try {
   const rows = winners ? readFileSync(`${DL}/${winners}`, 'utf8').split('\r\n') : []
   check(!!winners && rows[0].includes('Winner email') && rows.length > 1, `winners CSV downloaded (${rows.length - 1} rows)`)
 
+  // Reset all bids (bidding is paused by now): two-step confirm, result, every row back to "No bids".
+  // The data side (which fields reset, > 500 bids, the pause guard in the rules) is in tests/rules/admin.test.js.
+  await clickText(page, 'button', 'Reset all bids')
+  await clickText(page, 'button', 'Delete all')
+  await waitForText(page, 'Reset done:', 15_000)
+  const noBids = await page.$$eval('tbody > tr', (trs) => trs.every((r) => /No bids/.test(r.innerText)))
+  check(noBids, 'reset all bids: every item is back to "No bids"')
 
   await clickText(page, 'nav a', 'Items')
   await waitForText(page, 'Bidding is currently closed', 5000)
