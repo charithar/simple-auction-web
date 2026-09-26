@@ -124,7 +124,7 @@ items:
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
 - [ ] Budget alert set up (setup step 7), and App Check enforced.
 - [ ] Test on a phone. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
-- [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, pause, then Admin → **Reset all bids** (bidding must be paused) to put every item back to its starting price with no bids, and re-check prices. The items, closing times and bidder accounts are kept; re-import the auction file afterwards if you also want the original closing times back.
+- [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, try anti-sniping (Admin → an item's **End in 2m**, then bid in its last minute and watch the closing time move), pause, then Admin → **Reset all bids** (bidding must be paused) to put every item back to its starting price with no bids, and re-check prices. The items, closing times and bidder accounts are kept; re-import the auction file afterwards if you also want the original closing times back.
 - [ ] Decide what to post in the bidding-paused message and how you'll contact winners.
 - [ ] Tell bidders about outbid notifications: after their first bid the dialog offers "Notify me if I'm outbid…"; allowing it sends a sample notification at once. The auction tab must stay open (it can be in the background). No sample? Allow notifications for the browser in the computer's settings (Windows: Settings → System → Notifications; Mac: System Settings → Notifications) and turn off Do not disturb / Focus. iPhone Safari doesn't support them.
 

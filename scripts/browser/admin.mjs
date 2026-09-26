@@ -73,6 +73,17 @@ try {
   const after = await page.$eval('#end-item-000', (i) => i.value)
   check(new Date(after) - new Date(before) === 5 * 60_000, `+5m moves the closing time (${before} → ${after})`)
 
+  // End in 2m (e.g. to try anti-sniping): two-step confirm; the item then closes about 2 minutes from now.
+  const clickInFirstRow = (label) => page.evaluate((l) => [...[...document.querySelectorAll('tbody > tr')][0].querySelectorAll('button')]
+    .find((b) => b.textContent.trim() === l).click(), label)
+  await clickInFirstRow('End in 2m')
+  await clickInFirstRow('End in 2 min?')
+  await sleep(1500)
+  const item0 = await (await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/items/item-000',
+    { headers: { Authorization: 'Bearer owner' } })).json()
+  const endsIn = Date.parse(item0.fields.endTime.timestampValue) - Date.now()
+  check(endsIn > 100_000 && endsIn <= 120_000, `"End in 2m" (confirmed) makes lot 0 close in ${Math.round(endsIn / 1000)} s`)
+
   const resetBtn = 'td:last-child button:last-of-type'
   check(await page.evaluate((s) => [...document.querySelectorAll('tbody > tr')][0].querySelector(s).disabled, resetBtn),
     'reset is disabled while bidding is open')

@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
 import {
-  planImport, applyImport, resetItemBids, resetAllBids, extendItem, fetchItemBids, fetchAllBids, updateSettings,
+  planImport, applyImport, resetItemBids, resetAllBids, extendItem, endItemIn, fetchItemBids, fetchAllBids, updateSettings,
   createUserCache,
 } from '../../src/lib/admin.js'
 import { placeBid } from '../../src/lib/bids.js'
@@ -217,6 +217,34 @@ describe('item controls', () => {
     const settings = await raw(getSettings)
     await placeBid(db('alice'), { itemId: 'item-001', uid: 'alice', amount: 100, settings })
     await placeBid(db('bob'), { itemId: 'item-001', uid: 'bob', amount: 150, settings })
+  })
+
+  it('"End in 2m" sets the closing time two minutes from now, while bidding is open', async () => {
+    const now = Date.now()
+    await endItemIn(db('admin'), 'item-002', 2 * 60_000, now)
+    expect((await raw(listItems))[1].endTime.toMillis()).toBe(now + 2 * 60_000)
+    await assertFails(endItemIn(db('alice'), 'item-002', 2 * 60_000))
+  })
+
+  it('an item without a recent bid then closes on time; a late bid is refused', async () => {
+    const t = Date.now()
+    await endItemIn(db('admin'), 'item-002', 1_000, t)
+    await new Promise((r) => setTimeout(r, 1_500))
+    const settings = await raw(getSettings)
+    // A client clock 1 s behind: its own check still sees the item open, the rules don't.
+    const late = { itemId: 'item-002', uid: 'alice', amount: 200, settings, now: Date.now() - 1_000 }
+    await expect(placeBid(db('alice'), late)).rejects.toMatchObject({ code: 'ended' })
+    expect((await raw(listItems))[1].bidCount).toBe(0)
+  })
+
+  it('anti-sniping: with a bid in the last window the item stays open past it, and a new bid extends it', async () => {
+    await endItemIn(db('admin'), 'item-001', 1_000) // bob bid just now: open until his bid + antiSnipeSeconds
+    await new Promise((r) => setTimeout(r, 1_500))
+    const settings = await raw(getSettings)
+    await expect(placeBid(db('alice'), { itemId: 'item-001', uid: 'alice', amount: 200, settings }))
+      .resolves.toEqual({ bidCount: 3, amount: 200 })
+    const item = (await raw(listItems))[0]
+    expect(item.lastBidAt.toMillis()).toBeGreaterThan(item.endTime.toMillis()) // accepted after the scheduled end
   })
 
   it('reset refuses while bidding is open', async () => {

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { db } from '../../firebase.js'
-import { extendItem, resetItemBids, fetchItemBids, setItemEnd } from '../../lib/admin.js'
+import { extendItem, resetItemBids, fetchItemBids, setItemEnd, endItemIn } from '../../lib/admin.js'
 import { formatMoney } from '../../lib/auction.js'
 import TimeLeft from '../TimeLeft.vue'
 import ConfirmButton from './ConfirmButton.vue'
@@ -66,6 +66,7 @@ async function run(fn) {
 }
 
 const extend = (min) => run(() => extendItem(db, props.item, props.settings, min * 60_000, props.now))
+const endSoon = () => run(() => endItemIn(db, props.item.id, 2 * 60_000, props.now))
 const reset = () => run(async () => {
   await resetItemBids(db, props.item, props.settings)
   bids.value = []
@@ -104,6 +105,14 @@ function toLocalInput(d) {
       <div class="flex flex-wrap gap-1">
         <button type="button" :disabled="busy" class="rounded-md bg-white px-2 py-1 text-sm ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40" @click="extend(5)">+5m</button>
         <button type="button" :disabled="busy" class="rounded-md bg-white px-2 py-1 text-sm ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40" @click="extend(15)">+15m</button>
+        <ConfirmButton
+          :disabled="busy || view.ended"
+          title="Close this item 2 minutes from now (e.g. to try anti-sniping)"
+          confirm-label="End in 2 min?"
+          @confirm="endSoon"
+        >
+          End in 2m
+        </ConfirmButton>
         <ConfirmButton
           :disabled="busy || item.bidCount === 0 || settings.biddingOpen"
           :title="settings.biddingOpen ? 'Pause bidding first' : ''"

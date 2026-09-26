@@ -137,6 +137,10 @@ export function extendItem(db, item, settings, ms, now = Date.now()) {
 
 export const setItemEnd = (db, itemId, date) => writeEnd(db, itemId, Timestamp.fromDate(date))
 
+// Sets the closing time to `ms` from now (e.g. to try anti-sniping). A bid in the
+// last antiSnipeSeconds still keeps the item open past it, as in a real close.
+export const endItemIn = (db, itemId, ms, now = Date.now()) => writeEnd(db, itemId, Timestamp.fromMillis(now + ms))
+
 // Deletes all bids on an item and restores its starting price.
 // Only safe while bidding is paused: a bid landing mid-reset would leave an
 // orphaned bid doc whose number blocks that item's future bids (the rules
