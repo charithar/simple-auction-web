@@ -111,6 +111,11 @@ export const useAuthStore = defineStore('auth', () => {
   // Profile sync (also measures the clock offset) + admin check on every page
   // load: 2 reads and at most 1 write. Only the UI relies on the admin flag;
   // the security rules check registration/admin themselves.
+  // A first sign-in on a new device can hit a passing hiccup (a slow first
+  // connection, App Check's first token): retry after 1 s, 3 s and 8 s before
+  // signing out. Refusals (permission-denied: the emergency stop) retry for good.
+  const HICCUP_RETRY_MS = [1_000, 3_000, 8_000]
+
   async function loadProfile(fbUser, gen, attempt) {
     busy.value = true
     try {
@@ -139,8 +144,13 @@ export const useAuthStore = defineStore('auth', () => {
         retrying.value = true
         // A new auth state (sign-out, another account) cancels this timer.
         retryTimer = setTimeout(() => loadProfile(fbUser, gen, attempt + 1), retryDelay(attempt))
+      } else if (attempt < HICCUP_RETRY_MS.length) {
+        error.value = '' // shown as "Signing in…"
+        retrying.value = true
+        retryTimer = setTimeout(() => loadProfile(fbUser, gen, attempt + 1), HICCUP_RETRY_MS[attempt])
       } else {
         error.value = 'Your profile could not be loaded. Please sign in again.'
+        retrying.value = false // the sign-out below may fail: show "Sign in" regardless
         // Keep Firebase and app state consistent so "Sign in" really retries.
         fbSignOut(auth).catch(() => {})
       }

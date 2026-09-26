@@ -177,26 +177,63 @@ describe('auth store: auth states', () => {
     })
   })
 
-  it('a failed profile sync signs out and asks to sign in again', async () => {
-    profile.syncProfile.mockRejectedValue(Object.assign(new Error('offline'), { code: 'unavailable' }))
-    const auth = useAuthStore()
-    auth.init()
-    await fb.onAuthChanged(fbUser())
-    expect(auth.error).toBe('Your profile could not be loaded. Please sign in again.')
-    expect(fb.signOut).toHaveBeenCalledTimes(1)
-    expect(auth).toMatchObject({ signedIn: false, isAdmin: false, busy: false, ready: true })
-  })
+  describe('a failed profile sync (other than a refusal)', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+    const offline = () => Object.assign(new Error('offline'), { code: 'unavailable' })
 
-  it('a failing Firebase sign-out is swallowed; the app state is still signed out', async () => {
-    fb.signOut.mockRejectedValue(new Error('network'))
-    const auth = useAuthStore()
-    auth.init()
-    await fb.onAuthChanged(fbUser('eve@gmail.com'))
-    profile.syncProfile.mockRejectedValue(new Error('sync failed'))
-    await fb.onAuthChanged(fbUser())
-    await new Promise((r) => setTimeout(r, 0)) // let the rejected sign-outs settle
-    expect(fb.signOut).toHaveBeenCalledTimes(2)
-    expect(auth).toMatchObject({ signedIn: false, ready: true })
+    it('a first-sign-in hiccup is retried quietly and then signs in', async () => {
+      profile.syncProfile.mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline())
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      expect(auth).toMatchObject({ signedIn: false, retrying: true, error: '', busy: false, ready: true })
+      await vi.advanceTimersByTimeAsync(1_000) // fails again
+      expect(auth).toMatchObject({ signedIn: false, retrying: true, error: '' })
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect(profile.syncProfile).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(auth).toMatchObject({ signedIn: true, retrying: false, error: '' })
+      expect(fb.signOut).not.toHaveBeenCalled()
+    })
+
+    it('after 1 s, 3 s and 8 s of retries it signs out and asks to sign in again', async () => {
+      profile.syncProfile.mockRejectedValue(offline())
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      await vi.advanceTimersByTimeAsync(4_000)
+      await vi.advanceTimersByTimeAsync(7_999)
+      expect(fb.signOut).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(profile.syncProfile).toHaveBeenCalledTimes(4)
+      expect(auth.error).toBe('Your profile could not be loaded. Please sign in again.')
+      expect(fb.signOut).toHaveBeenCalledTimes(1)
+      expect(auth).toMatchObject({ signedIn: false, retrying: false, isAdmin: false, busy: false, ready: true })
+    })
+
+    it('another auth state cancels the pending retry', async () => {
+      profile.syncProfile.mockRejectedValueOnce(offline())
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      await fb.onAuthChanged(null)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(profile.syncProfile).toHaveBeenCalledTimes(1)
+      expect(auth).toMatchObject({ signedIn: false, retrying: false })
+    })
+
+    it('a failing Firebase sign-out is swallowed; the app state is still signed out', async () => {
+      fb.signOut.mockRejectedValue(new Error('network'))
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser('eve@gmail.com'))
+      profile.syncProfile.mockRejectedValue(new Error('sync failed'))
+      await fb.onAuthChanged(fbUser())
+      await vi.advanceTimersByTimeAsync(12_000) // retries exhausted; the rejected sign-outs settle
+      expect(fb.signOut).toHaveBeenCalledTimes(2)
+      expect(auth).toMatchObject({ signedIn: false, retrying: false, ready: true })
+    })
   })
 
   it('a slow profile sync for a previous auth state is ignored', async () => {

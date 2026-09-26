@@ -30,6 +30,7 @@ Why the app is the way it is. Read this before changing behaviour that looks odd
 - **The emergency stop cuts open listeners** on production; the emulator never does, not even on a rules change. Pages now reconnect by themselves after "Resume access".
 - **A reconnect waited forever for "fresh" data**: re-attached listeners got cached data, and the server's confirmation of unchanged data is metadata-only, which `onSnapshot` doesn't report by default. Fixed with `includeMetadataChanges: true` on the items listener (metadata-only snapshots aren't billed).
 - **Browser notifications silently missing**: the page created them (no console error) but Windows suppressed them (app notifications off / Do not disturb). Hence the sample notification on opt-in, and the README checklist. iPhone Safari doesn't support web notifications for sites that aren't installed as apps.
+- **The first sign-in on a brand-new device bounced back to "Sign in"**, and the second attempt worked (seen on a second laptop and a phone; never in a private window on a device that had already signed in). The first profile sync on a fresh device (new Firestore connection, first App Check token) could fail with a transient error, and any non-refusal failure signed out at once. It now retries after 1 s, 3 s and 8 s, showing "Signing in…", before giving up.
 - **A stale tab after a redeploy** requested a lazy chunk that no longer existed (Pages serves `index.html` for missing files): hence the one-time automatic reload in `main.js`.
 
 ## Review history

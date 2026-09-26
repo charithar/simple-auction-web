@@ -32,7 +32,7 @@ const route = useRoute()
 
       <!-- Signed in with Google but refused for now (emergency stop): retrying, no "Sign in". -->
       <template v-else-if="auth.retrying">
-        <span class="text-sm text-slate-400">Reconnecting…</span>
+        <span class="text-sm text-slate-400">{{ auth.error ? 'Reconnecting…' : 'Signing in…' }}</span>
       </template>
 
       <template v-else-if="auth.signedIn">

@@ -81,8 +81,11 @@ const filters = computed(() => [
   <div v-if="!auth.ready" class="py-16 text-center text-slate-500">Loading…</div>
 
   <!-- Items are readable only when signed in (keeps outsiders from running up reads). -->
-  <!-- Signed in with Google but refused (emergency stop): the auth store retries. -->
-  <div v-else-if="auth.retrying" class="py-16 text-center text-slate-500" role="status">Reconnecting…</div>
+  <!-- Signed in with Google, profile not loaded yet: the auth store retries (a refusal
+       during the emergency stop shows its banner; a first-sign-in hiccup doesn't). -->
+  <div v-else-if="auth.retrying" class="py-16 text-center text-slate-500" role="status">
+    {{ auth.error ? 'Reconnecting…' : 'Signing in…' }}
+  </div>
 
   <section v-else-if="!auth.signedIn" class="mx-auto max-w-md py-16 text-center">
     <h1 class="text-2xl font-semibold">Welcome to the auction</h1>
