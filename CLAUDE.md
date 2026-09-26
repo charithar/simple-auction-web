@@ -15,14 +15,16 @@ A rewrite of `../auction-web` (React). Silent auction for about 20 items (the re
 - `npm test`: unit tests for the pure logic (`tests/unit`)
 - `npm run deploy:rules -- --project <id>`: renders the rules with `VITE_ALLOWED_DOMAINS` and deploys them (the user runs this; it contacts Firebase).
 - `npm run test:rules`: Firestore rules tests on the emulator (`tests/rules`). **Requires Java 21+.** CI runs them.
+- `npm run test:coverage`: unit + rules suites together with v8 coverage of `src/**/*.js` (report in gitignored `coverage/`; needs Java, or run it in the Docker image and copy `coverage/` out, since Vitest can't delete a mounted folder). Kept at 100% statements/branches/functions/lines; `.vue` components are covered by the e2e scripts.
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Emulators listen on localhost only: `firebase.json` binds 127.0.0.1, and Docker uses `firebase.docker.json` (0.0.0.0 inside the container) with ports published on 127.0.0.1. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
 - `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator (falls back to `data/auction.sample.yml` when the real file is absent). It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
 - `npm run load [-- --users 100 --duration 60 --gap 10 --price 0.06]`: load test against the running emulators. Simulated bidders listen like the app (settings, all items, own bids) and bid through `placeBid` with `seenBidCount`; the script counts billed reads and projects a day's reads and cost beyond the free 50k (`--price` = USD per 100k reads for your database's location).
   - **Emulator latency grows with the number of listeners and doesn't reflect production.**
-- `npm run e2e:bidder | e2e:outbid | e2e:admin`: headless-Chrome checks in `scripts/browser/` (puppeteer-core with the local Chrome; `CHROME_PATH`, `APP_URL` and `HEADFUL=1` are optional).
+- `npm run e2e:bidder | e2e:outbid | e2e:killswitch | e2e:admin`: headless-Chrome checks in `scripts/browser/` (puppeteer-core with the local Chrome; `CHROME_PATH`, `APP_URL` and `HEADFUL=1` are optional).
   - Setup: emulators running, then `npm run seed`, `npm run smoke` (creates `smoke0..N@example.com`) and `npm run dev`. `e2e:admin` also needs `seed -- --admin-only smoke0@example.com`, and it changes the data.
-  - `e2e:outbid` uses two browser contexts: A bids, B outbids A, A gets the toast and the summary updates.
+  - `e2e:outbid` uses two browser contexts: A bids, B outbids A, A gets the toast and the summary updates. `e2e:killswitch` (needs the admin) turns the emergency stop on and off; it clears `settings/killswitch` through the emulator's REST API first.
+  - Downloads (admin CSV exports) need real clicks (`elementHandle.click()`): Chrome blocks a second script-started download.
   - Sign-in goes through the Auth emulator's account picker. Its list renders before its click handlers are bound, so `signIn()` retries.
   - Wait with `polling: 250`, never animation-frame polling, because background tabs get no animation frames.
 - `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
@@ -49,6 +51,7 @@ items/{id}/bids/{n}     { amount, uid, createdAt }   n = bidCount as an unpadded
 users/{uid}             { name, email, createdAt, lastSeen }       owner and admin; the owner may only touch lastSeen,
                         at most once a minute (limits write spam; name is fixed at creation)
 admins/{uid}            {}   created by hand in the Firebase console; no client writes
+settings/killswitch     { since }   emergency stop: while it exists the rules refuse every non-admin request (live())
 ```
 
 - **Bid:** `src/lib/bids.js` `placeBid()` runs a transaction that updates the item and creates `bids/{n}`. The rules cross-check both documents, so neither can be written without the other.
@@ -73,7 +76,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 - `stores/auction.js`: while signed in, three live listeners: `settings/auction`, **all items** (`subscribeItems`, lot order) and the user's own bids (`collectionGroup` on `uid`). Every card always shows the current price; there are no per-item watches, no skeletons and no cache-only modes. Signing out detaches and clears everything. A failed listener shows a "reload" banner.
 - `firebase.js` uses Firestore's default in-memory cache: each tab has its own connection.
-- `stores/auth.js` syncs the profile (and measures the clock offset) and checks admin on every page load: 2 reads, at most 1 write. `clockOffsetMs: null` (profile touched under a minute ago, or created by another device at the same moment) is used as 0.
+- `stores/auth.js` syncs the profile (and measures the clock offset) and checks admin on every page load: 2 reads, at most 1 write. `clockOffsetMs: null` (profile touched under a minute ago, or created by another device at the same moment) falls back to the last measured offset (`localStorage` `auction.clockOffset`, up to 12 h old), else 0. A refused sync (`permission-denied`: emergency stop on) says the auction is temporarily unavailable.
 - `HomeView.vue` renders the grid with filters (All/Open/My bids/Outbid, `matchesFilter` in `lib/itemView.js`), search, sort, and a single `useNow()` ticker. The open item is kept in the URL (`#/?item=item-007`).
   - **My bids summary** (`lib/myBids.js`): "Winning N items · total if they close now", "Outbid on N: bid again?", and after the close "You won N items: total".
   - **Outbid alerts** (`composables/useOutbidAlerts.js`, `OutbidToasts.vue`): when an item goes from winning to outbid (`newlyOutbid`; never on first load), a toast with "Bid again", plus a browser notification if the tab is in the background and the bidder allowed it (offered in `BidDialog` after a successful bid). Client only, no backend.
@@ -91,7 +94,8 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 - Reads dominate. A page load costs ~22 reads (20 items, settings, own bids). A bid costs 1 read per open tab (every tab listens to all items) plus ~4 (transaction and rules lookups). The first 50k reads a day are free.
 - **Measured** (`npm run load`, 20 items, 2026-09-26): 20 reads per page load, 1 read per bid per online bidder. Projection for the 30-minute window (400 page loads, 600 bids, ~100 online): **~70k reads, about 1 US cent** beyond the free tier; 1,500 bids with 100 online is ~170k reads, still under 10 cents.
-- **Abuse now costs money instead of causing an outage:** Firebase has no hard spending cap. Mitigations: items readable only when signed in on an allowed domain, App Check enforced for Firestore, the once-a-minute `lastSeen` rule, a **Cloud Billing budget alert** (README setup), and the runbook's "disable the account" step.
+- **Abuse now costs money instead of causing an outage:** Firebase has no hard spending cap, and rules can't rate-limit reads. One signed-in scripted client can cost roughly $0.40–$20/hour (round 3 measurement). Mitigations: items readable only when signed in on an allowed domain, App Check enforced for Firestore, the once-a-minute `lastSeen` rule, a Cloud Billing budget alert and a Monitoring alert on reads per minute (README setup), and the **emergency stop**.
+- **Emergency stop** (`settings/killswitch`, rules `live()`): every non-admin rule requires `live()` (`!exists(settings/killswitch)`, 1 read per request); admins keep full access (`live() || isAdmin()`, and admins can still read their own `admins` doc). Toggled on the admin page (`AdminControls.vue`, `setKillSwitch`, `subscribeKillSwitch`) or in the console. New requests are refused at once; listeners already open are not re-checked (verified on the emulator), so open pages keep their last prices but every bid is refused, and `placeBid` reports it as `unavailable` ("temporarily unavailable") when even its reads are refused. Bidders' listener errors and refused profile syncs show the same message.
 
 ## Milestones
 

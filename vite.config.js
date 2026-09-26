@@ -39,6 +39,14 @@ export default defineConfig(({ command, mode }) => {
       environment: 'node',
       testTimeout: 20000,
       fileParallelism: false,
+      // npm run test:coverage (unit + rules suites together). Components (.vue)
+      // need a browser; the e2e scripts in scripts/browser/ cover them.
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.js'],
+        reporter: ['text', 'html', 'json-summary'],
+        reportsDirectory: 'coverage',
+      },
     },
   }
 })

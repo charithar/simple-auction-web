@@ -51,6 +51,14 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    // Emergency stop: while settings/killswitch exists, only admins can read or
+    // write anything (the owner's brake on a scripted abuser's read bill, since
+    // rules can't rate-limit reads). Set from the admin page or by creating the
+    // document in the console; delete it to resume. Costs one read per request.
+    function live() {
+      return !exists(/databases/$(database)/documents/settings/killswitch);
+    }
+
     function settings() {
       return get(/databases/$(database)/documents/settings/auction).data;
     }
@@ -96,6 +104,7 @@ service cloud.firestore {
         && n == before.bidCount + 1
         && after.highBidderUid == request.auth.uid
         && after.lastBidAt == request.time
+        && live()
         && isRegistered()
         && s.biddingOpen == true
         && stillOpen(before, s)
@@ -108,20 +117,23 @@ service cloud.firestore {
     // ---------- collections ----------
 
     match /settings/{docId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && (live() || isAdmin());
       allow write: if isAdmin();
     }
 
     match /admins/{uid} {
       // Managed only from the Firebase console.
-      allow read: if signedIn() && request.auth.uid == uid;
+      // Admins can still confirm their own status while the emergency stop is on.
+      allow read: if signedIn() && request.auth.uid == uid
+        && (live() || exists(/databases/$(database)/documents/admins/$(uid)));
       allow write: if false;
     }
 
     match /users/{uid} {
-      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow read: if (signedIn() && request.auth.uid == uid && live()) || isAdmin();
       allow create: if isGoogleUser()
         && request.auth.uid == uid
+        && (live() || isAdmin())
         && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt', 'lastSeen'])
         && request.resource.data.keys().hasAll(['name', 'email', 'createdAt', 'lastSeen'])
         && validName(request.resource.data.name)
@@ -134,6 +146,7 @@ service cloud.firestore {
       // to look like another bidder in the admin exports.
       allow update: if isGoogleUser()
         && request.auth.uid == uid
+        && (live() || isAdmin())
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen'])
         && request.resource.data.lastSeen == request.time
         && request.time > resource.data.lastSeen + duration.value(60, 's');
@@ -141,12 +154,13 @@ service cloud.firestore {
     }
 
     match /items/{itemId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && (live() || isAdmin());
       allow create, delete: if isAdmin();
       allow update: if isValidBid(itemId) || isAdmin();
 
       match /bids/{bidId} {
-        allow create: if isRegistered()
+        allow create: if live()
+          && isRegistered()
           && request.resource.data.keys().hasOnly(['amount', 'uid', 'createdAt'])
           && request.resource.data.keys().hasAll(['amount', 'uid', 'createdAt'])
           && request.resource.data.uid == request.auth.uid
@@ -166,7 +180,7 @@ service cloud.firestore {
     // Reads of bids, including the collection-group query for "my bids".
     // Queries must filter on uid == own uid to pass.
     match /{path=**}/bids/{bidId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || (signedIn() && live() && resource.data.uid == request.auth.uid);
     }
   }
 }

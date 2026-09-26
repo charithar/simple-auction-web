@@ -17,6 +17,29 @@ const signInMessages = {
 export const isInAppBrowser = () =>
   /FBAN|FBAV|Instagram|Line\/|MicroMessenger|; wv\)/i.test(navigator.userAgent)
 
+// Last measured clock offset, for page loads that can't measure one (the profile
+// was touched under a minute ago, e.g. a quick reload). Device clocks drift
+// slowly, so a recent value beats assuming the clock is right.
+const OFFSET_KEY = 'auction.clockOffset'
+const OFFSET_MAX_AGE_MS = 12 * 3_600_000
+
+export function storedOffset(now = Date.now()) {
+  try {
+    const v = JSON.parse(localStorage.getItem(OFFSET_KEY))
+    return v && Number.isFinite(v.offset) && now - v.at < OFFSET_MAX_AGE_MS ? v.offset : null
+  } catch {
+    return null
+  }
+}
+
+export function storeOffset(offset, now = Date.now()) {
+  try {
+    localStorage.setItem(OFFSET_KEY, JSON.stringify({ offset, at: now }))
+  } catch {
+    /* storage blocked: the next quick reload assumes 0 */
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null) // { uid, name, email, photoURL } once the profile doc exists
   const isAdmin = ref(false)
@@ -40,6 +63,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (!fbUser) {
         user.value = null
         isAdmin.value = false
+        busy.value = false // a sign-out can arrive while a profile sync is still running
         markReady()
         return
       }
@@ -68,13 +92,19 @@ export const useAuthStore = defineStore('auth', () => {
         if (gen !== generation) return
         user.value = { uid: fbUser.uid, name: profile.name, email: fbUser.email, photoURL: fbUser.photoURL }
         isAdmin.value = admin
-        // null: not measured (profile touched under a minute ago); assume 0.
-        clockOffsetMs.value = offset ?? 0
+        // null: not measured (profile touched under a minute ago): use the last
+        // measured offset, else assume the device clock is right.
+        if (offset != null) storeOffset(offset)
+        clockOffsetMs.value = offset ?? storedOffset() ?? 0
         error.value = ''
       } catch (e) {
         if (gen !== generation) return
         console.error('Profile sync failed', e)
-        error.value = 'Your profile could not be loaded. Please sign in again.'
+        // permission-denied here means the rules refuse this user everything,
+        // i.e. the admin's emergency stop (settings/killswitch) is on.
+        error.value = e.code === 'permission-denied'
+          ? 'The auction is temporarily unavailable. Please try again later.'
+          : 'Your profile could not be loaded. Please sign in again.'
         user.value = null
         isAdmin.value = false
         // Keep Firebase and app state consistent so "Sign in" really retries.

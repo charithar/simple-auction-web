@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  effectiveEnd, minNextBid, maxNextBid, validateBid, isOpen, formatRemaining,
+  effectiveEnd, minNextBid, maxNextBid, validateBid, formatRemaining,
 } from '../../src/lib/auction.js'
 
 const settings = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -53,10 +53,6 @@ describe('validateBid', () => {
     expect(v(item({ endTime: NOW - 1, lastBidAt: NOW - 30_000 }), 5000)).toBe('ok'))
   it('rejects when bidding closed', () =>
     expect(v(item(), 5000, { ...settings, biddingOpen: false })).toBe('closed'))
-  it('isOpen reflects both flag and time', () => {
-    expect(isOpen(item(), settings, NOW)).toBe(true)
-    expect(isOpen(item(), settings, NOW + 60_000)).toBe(false)
-  })
 })
 
 describe('formatRemaining', () => {

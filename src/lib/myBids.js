@@ -23,5 +23,9 @@ export const standings = (rows) => new Map(rows.map(({ item, view }) => [item.id
 
 // Items that went from winning to outbid since `before` (a standings() map).
 // Items not in `before` (first load) never count, so opening the page doesn't alert.
+// Someone else must actually lead: after an admin reset the item has no leader
+// for a moment before the bidder's own (deleted) bid disappears from "my bids".
 export const newlyOutbid = (before, rows) =>
-  rows.filter(({ item, view }) => view.standing === 'outbid' && before.get(item.id) === 'winning').map(({ item }) => item)
+  rows
+    .filter(({ item, view }) => view.standing === 'outbid' && item.highBidderUid != null && before.get(item.id) === 'winning')
+    .map(({ item }) => item)

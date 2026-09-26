@@ -155,7 +155,7 @@ export function parseDuration(v) {
 
 const fail = (errors) => ({ settings: null, items: [], errors })
 const toDate = (v) => {
-  const d = v instanceof Date ? v : new Date(v)
+  const d = new Date(v) // js-yaml v5 returns timestamps as strings
   return Number.isNaN(d.getTime()) ? null : d
 }
 const posInt = (v) => Number.isInteger(v) && v > 0

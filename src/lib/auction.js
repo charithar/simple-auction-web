@@ -22,9 +22,6 @@ export const effectiveEnd = (item, settings) => {
   return Math.max(end, last + settings.antiSnipeSeconds * 1000)
 }
 
-export const isOpen = (item, settings, now) =>
-  settings.biddingOpen === true && now < effectiveEnd(item, settings)
-
 export const minNextBid = (item, settings) =>
   item.bidCount === 0 ? item.currentAmount : item.currentAmount + increments(item, settings).min
 

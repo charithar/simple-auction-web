@@ -3,13 +3,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // placeBid's handling of refused bids, with Firestore scripted: `denials` is how
 // many commits the "server" refuses, `settingsNow` what a server read of
 // settings/auction returns. The emulator can't time a sub-second pause reliably.
-const state = { denials: 0, commits: 0, settingsNow: null, item: null }
+const state = { denials: 0, commits: 0, settingsNow: null, item: null, readsRefused: false }
 vi.mock('firebase/firestore', () => ({
   doc: (db, ...path) => ({ path: path.join('/') }),
   serverTimestamp: () => 'server-time',
-  getDocFromServer: vi.fn(async (ref) => ({ data: () => (ref.path === 'settings/auction' ? state.settingsNow : state.item) })),
+  getDocFromServer: vi.fn(async (ref) => {
+    if (state.readsRefused) throw Object.assign(new Error('denied'), { code: 'permission-denied' })
+    return { data: () => (ref.path === 'settings/auction' ? state.settingsNow : state.item) }
+  }),
   runTransaction: vi.fn(async (db, fn) => {
-    const tx = { get: async () => ({ exists: () => true, data: () => state.item }), update() {}, set() {} }
+    const tx = {
+      get: async () => {
+        if (state.readsRefused) throw Object.assign(new Error('denied'), { code: 'permission-denied' })
+        return { exists: () => true, data: () => state.item }
+      },
+      update() {},
+      set() {},
+    }
     const result = await fn(tx)
     if (state.commits++ < state.denials) throw Object.assign(new Error('denied'), { code: 'permission-denied' })
     return result
@@ -26,8 +36,33 @@ beforeEach(() => {
   Object.assign(state, {
     denials: 0,
     commits: 0,
+    readsRefused: false,
     settingsNow: SETTINGS,
     item: { currency: 'Rs.', currentAmount: 5000, bidCount: 0, endTime: ts(Date.now() + 3_600_000), lastBidAt: null },
+  })
+})
+
+describe('placeBid: emergency stop', () => {
+  it('when even reads are refused, the bidder is told the auction is unavailable', async () => {
+    state.denials = 5
+    state.readsRefused = true
+    await expect(bid()).rejects.toMatchObject({ code: 'unavailable', message: 'The auction is temporarily unavailable. Please try again later.' })
+    expect(state.commits).toBe(0) // refused at the transaction's first read
+  })
+
+  it('reads refused only after the commit was refused: also unavailable', async () => {
+    state.denials = 5
+    const { getDocFromServer } = await import('firebase/firestore')
+    getDocFromServer.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'permission-denied' }))
+    await expect(bid()).rejects.toMatchObject({ code: 'unavailable' })
+    expect(state.commits).toBe(1)
+  })
+
+  it('other read errors are passed on unchanged', async () => {
+    state.denials = 5
+    const { getDocFromServer } = await import('firebase/firestore')
+    getDocFromServer.mockRejectedValueOnce(Object.assign(new Error('offline'), { code: 'unavailable' }))
+    await expect(bid()).rejects.toMatchObject({ code: 'unavailable', message: 'offline' })
   })
 })
 

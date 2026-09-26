@@ -20,9 +20,11 @@ export const useAuctionStore = defineStore('auction', () => {
 
   const onError = (e) => {
     console.error('Firestore listener failed', e)
-    error.value = e.code === 'resource-exhausted'
-      ? 'The auction is temporarily over capacity. Please try again later.'
-      : 'Lost connection to the auction. Reload the page to retry.'
+    error.value = {
+      'resource-exhausted': 'The auction is temporarily over capacity. Please try again later.',
+      // The rules refuse this user everything: the admin's emergency stop is on.
+      'permission-denied': 'The auction is temporarily unavailable. Try reloading in a few minutes.',
+    }[e.code] ?? 'Lost connection to the auction. Reload the page to retry.'
   }
 
   let unsubs = []

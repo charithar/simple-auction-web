@@ -1,6 +1,6 @@
 import {
-  collection, collectionGroup, deleteField, doc, getDoc, getDocs, orderBy, query, runTransaction, setDoc,
-  Timestamp, updateDoc, writeBatch,
+  collection, collectionGroup, deleteDoc, deleteField, doc, getDoc, getDocs, orderBy, query, runTransaction,
+  serverTimestamp, setDoc, Timestamp, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { newItemDoc } from './importItems.js'
 import { effectiveEnd, toMillis } from './auction.js'
@@ -117,6 +117,13 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
 }
 
 export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction'), patch, { merge: true })
+
+// Emergency stop: while settings/killswitch exists the rules refuse everyone
+// but admins (see firestore.rules live()).
+export const setKillSwitch = (db, on) => {
+  const ref = doc(db, 'settings', 'killswitch')
+  return on ? setDoc(ref, { since: serverTimestamp() }) : deleteDoc(ref)
+}
 
 const writeEnd = (db, itemId, endTime) => updateDoc(doc(db, 'items', itemId), { endTime })
 

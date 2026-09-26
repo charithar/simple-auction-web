@@ -33,7 +33,10 @@ export function useOutbidAlerts(rows, openItem) {
   }
 
   watch(rows, (list) => {
-    if (!list.length) return // not loaded yet: no baseline
+    if (!list.length) {
+      before = null // signed out or not loaded yet: the next data is a fresh baseline
+      return
+    }
     if (before) newlyOutbid(before, list).forEach(alert)
     before = standings(list)
   })

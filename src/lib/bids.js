@@ -40,6 +40,15 @@ function outbidError(item, settings, uid) {
   )
 }
 
+// Even reading is refused: the admin's emergency stop (settings/killswitch) is on.
+// A page opened earlier keeps its live prices, but new requests are refused.
+function unavailableIfRefused(e) {
+  if (e.code === 'permission-denied') {
+    throw new BidError('unavailable', 'The auction is temporarily unavailable. Please try again later.')
+  }
+  throw e
+}
+
 // A bid denied on an unchanged item within this margin of its end is reported as
 // "just closed": the client's clock is only an estimate of the server's.
 const CLOSE_MARGIN_MS = 2000
@@ -66,15 +75,17 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
       const args = { itemId, uid, amount, settings, now: serverNow(), seenBidCount }
       return await bidTransaction(db, itemRef, args, (item) => (seen = item))
     } catch (e) {
-      if (e.code !== 'permission-denied' || !seen) throw e
+      if (e.code !== 'permission-denied') throw e
+      // Refused before we could even read the item: the emergency stop is on.
+      if (!seen) unavailableIfRefused(e)
       // From the server: with a live listener on this item, getDoc() may answer
       // from a cache that hasn't received the competing bid yet.
-      const fresh = (await getDocFromServer(itemRef)).data()
-      if (fresh && fresh.bidCount !== seen.bidCount) throw outbidError(fresh, settings, uid)
+      const fresh = (await getDocFromServer(itemRef).catch(unavailableIfRefused)).data()
+      if (fresh && fresh.bidCount > seen.bidCount) throw outbidError(fresh, settings, uid)
       if (attempt >= 2) {
         // Say why when we can tell: the admin closed bidding (before our settings
         // listener heard of it), or the item closed.
-        const current = (await getDocFromServer(doc(db, 'settings', 'auction'))).data()
+        const current = (await getDocFromServer(doc(db, 'settings', 'auction')).catch(unavailableIfRefused)).data()
         if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently closed.')
         if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, current ?? settings)) {
           throw new BidError('ended', 'Bidding on this item has just closed.')

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { myBidsSummary, formatTotal, standings, newlyOutbid } from '../../src/lib/myBids.js'
 
-const item = (id, currentAmount, currency = 'Rs.') => ({ id, title: `Lot ${id}`, currentAmount, currency })
+const item = (id, currentAmount, currency = 'Rs.', highBidderUid = 'rival') => ({ id, title: `Lot ${id}`, currentAmount, currency, highBidderUid })
 const row = (it, standing) => ({ item: it, view: { standing } })
 
 describe('myBidsSummary', () => {
@@ -30,6 +30,11 @@ describe('newlyOutbid', () => {
     const b = item('b', 200)
     const before = standings([row(a, 'winning'), row(b, 'outbid')])
     expect(newlyOutbid(before, [row(a, 'outbid'), row(b, 'outbid')])).toEqual([a])
+  })
+
+  it('stays quiet when nobody leads (right after an admin reset)', () => {
+    const a = item('a', 100)
+    expect(newlyOutbid(standings([row(a, 'winning')]), [row({ ...a, highBidderUid: null }, 'outbid')])).toEqual([])
   })
 
   it('stays quiet on first load, for items already outbid, and when ended', () => {

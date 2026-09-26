@@ -13,6 +13,7 @@
     "deploy:site": "vite build && wrangler pages deploy dist --branch main --commit-dirty=true",
     "deploy:rules": "node scripts/build-rules.mjs --require && firebase deploy --only firestore:rules,firestore:indexes",
     "test:rules": "npm run rules && firebase emulators:exec --only firestore --project demo-auction \"vitest run tests/rules\"",
+    "test:coverage": "npm run rules && firebase emulators:exec --only firestore --project demo-auction \"vitest run tests --coverage\"",
     "test:docker": "docker build -t auction-vue-test . && docker run --rm auction-vue-test sh -c \"npm run lint && npm test && npm run test:rules\"",
     "seed": "node scripts/seed-emulator.mjs",
     "smoke": "node scripts/smoke-emulator.mjs",
@@ -21,6 +22,7 @@
     "e2e:bidder": "node scripts/browser/bidder.mjs",
     "e2e:admin": "node scripts/browser/admin.mjs",
     "e2e:outbid": "node scripts/browser/outbid.mjs",
+    "e2e:killswitch": "node scripts/browser/killswitch.mjs",
     "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 127.0.0.1:4000:4000 -p 127.0.0.1:4400:4400 -p 127.0.0.1:8080:8080 -p 127.0.0.1:9099:9099 auction-vue-test sh -c \"npm run rules && npx firebase emulators:start --only firestore,auth --project demo-auction --config firebase.docker.json\"",
     "emulators": "npm run rules && firebase emulators:start --only firestore,auth --project demo-auction"
   },
@@ -36,6 +38,7 @@
     "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-vue": "^6.0.9",
+    "@vitest/coverage-v8": "5.0.1",
     "eslint": "^10.11.0",
     "eslint-plugin-vue": "^10.11.1",
     "firebase-tools": "^15.31.0",

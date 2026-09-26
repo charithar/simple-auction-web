@@ -16,6 +16,10 @@ export const subscribeItems = (db, onItems, onError, onChangeCount) =>
     onError,
   )
 
+// Admin page: whether the emergency stop (settings/killswitch) is on.
+export const subscribeKillSwitch = (db, onState, onError) =>
+  onSnapshot(doc(db, 'settings', 'killswitch'), (snap) => onState(snap.exists()), onError)
+
 export const subscribeSettings = (db, onSettings, onError) =>
   onSnapshot(doc(db, 'settings', 'auction'), (snap) => onSettings(snap.exists() ? snap.data() : null), onError)
 

@@ -48,6 +48,24 @@ try {
   const history = await page.$$eval('tbody table tr', (r) => r.length)
   check(history > 0, `lot 0 bid history shows ${history} bid(s)`)
 
+  // All-bids export while lot 0 still has bids (the reset below clears them).
+  // Real (trusted) clicks: Chrome blocks a second download started by a
+  // script's element.click(), as it would any "multiple downloads" without a gesture.
+  const realClick = async (text) => {
+    const buttons = await page.$$('button')
+    for (const b of buttons) if ((await b.evaluate((e) => e.textContent.trim())) === text) return b.click()
+    throw new Error(`No button "${text}"`)
+  }
+  // One read per bid: slower than the winners export, so wait for the file.
+  await realClick('All bids CSV')
+  let bidsFile
+  for (let t = 0; t < 30 && !bidsFile; t++) {
+    await sleep(500)
+    bidsFile = readdirSync(DL).find((f) => f.startsWith('bids_') && f.endsWith('.csv'))
+  }
+  const bidRows = bidsFile ? readFileSync(`${DL}/${bidsFile}`, 'utf8').split('\r\n') : []
+  check(!!bidsFile && bidRows[0].includes('Bidder email') && bidRows.length > 1, `all-bids CSV downloaded (${bidRows.length - 1} rows)`)
+
   // +5m: the row and the closing-time field both move.
   const before = await page.$eval('#end-item-000', (i) => i.value)
   await firstRowButton('td:last-child button')
@@ -84,12 +102,13 @@ try {
   check((await rowText(1)).includes('(edited)') && (await rowText(99)).includes('Test Monitor'), 'import applied (edited lot 1, new lot 99)')
 
   // Exports
-  await clickText(page, 'button', 'Winners CSV')
+  await realClick('Winners CSV')
   await sleep(2500)
   const files = readdirSync(DL)
   const winners = files.find((f) => f.startsWith('winners_'))
   const rows = winners ? readFileSync(`${DL}/${winners}`, 'utf8').split('\r\n') : []
   check(!!winners && rows[0].includes('Winner email') && rows.length > 1, `winners CSV downloaded (${rows.length - 1} rows)`)
+
 
   await clickText(page, 'nav a', 'Items')
   await waitForText(page, 'Bidding is currently closed', 5000)

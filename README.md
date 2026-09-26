@@ -24,6 +24,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
    - **API restrictions → Restrict key:** Identity Toolkit API, Token Service API, Cloud Firestore API, Firebase App Check API.
    - Pages preview URLs (`https://<hash>.<name>.pages.dev`) are then blocked, so always test on the main URL. A script can fake the `Referer` header, so this only stops casual reuse of the key; App Check is the real protection.
 7. **Budget alert.** Blaze has no hard spending cap, so a script abusing the site would cost money instead of hitting a limit. Google Cloud console → **Billing → Budgets & alerts → Create budget**: scope it to this project, set an amount such as $5, and keep the email alerts at 50%, 90% and 100%. A normal auction costs cents, so an alert means something is wrong (see the abuse step in the runbook).
+8. **Reads alert (faster than billing).** Budget alerts can lag by hours. Google Cloud console → **Monitoring → Alerting → Create policy** → metric **Firestore Instance → Document Reads** (`firestore.googleapis.com/document/read_count`), rolling 1 minute, threshold e.g. **20,000 per minute** (the auction's busiest minute is ~1,000), notification by email. It fires within minutes of a scripted abuser starting.
 
 ### Allowed sign-in domain
 
@@ -132,7 +133,10 @@ items:
 2. Keep the admin page open. It shows live prices, leading bidders, bid counts and items closing soon.
 3. Glance at Firebase console → **Firestore → Usage** now and then. See the cost section below for what's normal.
 4. **Problems** (wrong price, item withdrawn): *Pause bidding* with a message, fix the item (set its closing time, or reset its bids while paused), then *Open bidding*. To withdraw an item, pause first: setting its closing time in the past doesn't close it if its last bid was within the anti-snipe window (2 minutes by default).
-5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast, or a budget alert): Firebase console → **Authentication → Users** → find the account → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour**, because a signed-in session stays valid until it expires and the rules don't check whether the account has been disabled. If they're bidding abusively, *Pause bidding* with a message until then.
+5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast, or a budget/reads alert):
+   - **Stop it now:** Admin → **Emergency stop → Block all bidder access** (confirm). The rules then refuse every request from anyone but admins: no reads, no bids, no sign-ins. Pages already open keep their last prices but can't bid, and bidders see "The auction is temporarily unavailable". It works even without the admin page: create a document `settings/killswitch` (any content) in the Firestore console; delete it to resume.
+   - **Find and block the account:** Firebase console → **Firestore → Usage** and **Authentication → Users** (recent sign-ins) → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour** (the rules don't check whether an account is disabled), so keep the emergency stop on for that hour, or *Pause bidding* if only bids are affected.
+   - **Resume:** **Resume access**; bidders reload the page (and sign in again if they reloaded while it was on).
 6. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
 7. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
 
@@ -214,6 +218,7 @@ npm run seed -- --admin-only you@example.com   # after signing in once: make tha
 
 npm test                          # unit tests
 npm run test:docker               # lint + unit + security-rules tests in Docker
+npm run test:coverage             # unit + rules tests with coverage (needs Java; report in coverage/)
 npm run smoke -- --users 20       # end-to-end checks against the running emulators
 npm run load -- --users 100       # load test + reads and cost projection
 npm run check                     # emulator data integrity (bids vs. item state)
@@ -222,6 +227,7 @@ npm run check                     # emulator data integrity (bids vs. item state
 # With emulators running, then: npm run seed, npm run smoke (creates test accounts), npm run dev
 npm run e2e:bidder                # grid, live prices, bidding, dialog, filters, phone layout, offline
 npm run e2e:outbid                # two bidders: outbid toast, "Bid again", My-bids summary
+npm run seed -- --admin-only smoke0@example.com && npm run e2e:killswitch   # emergency stop, as admin and bidder
 npm run seed -- --admin-only smoke0@example.com && npm run e2e:admin   # admin page; changes data, re-seed after
 # HEADFUL=1 to watch; screenshots go to test-results/browser/
 ```
