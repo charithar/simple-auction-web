@@ -115,7 +115,6 @@ describe('allowed domains', () => {
       const fs = as('dan', email)
       await assertFails(getDoc(doc(fs, 'items/item1')))
       await assertFails(getDoc(doc(fs, 'settings/auction')))
-      await assertFails(getDoc(doc(fs, 'catalog/items')))
       await assertFails(setDoc(doc(fs, 'users/dan'), profile(email)))
     }
   })
@@ -291,7 +290,7 @@ describe('users', () => {
     await assertFails(updateDoc(doc(fs, 'users/alice'), { lastSeen: Timestamp.now() }))
     await assertSucceeds(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))
   })
-  it('cannot touch lastSeen again within a minute (write-quota abuse)', async () => {
+  it('cannot touch lastSeen again within a minute (write spam)', async () => {
     const fs = db('alice')
     await assertSucceeds(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))
     await assertFails(updateDoc(doc(fs, 'users/alice'), { lastSeen: serverTimestamp() }))

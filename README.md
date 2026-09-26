@@ -1,8 +1,9 @@
 # Auction
 
-A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on Cloudflare Pages. It's built to run on Firebase's **free Spark plan**: no billing account, no Cloud Functions, no Cloud Storage. Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
+A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Firestore), hosted free on Cloudflare Pages. It runs on Firebase's **Blaze (pay-as-you-go) plan**, where an auction of ~20 items and ~100 bidders costs about a cent in reads, and uses no Cloud Functions and no Cloud Storage. (A version built for the free Spark plan, with a more complex read-saving design, is kept on the `spark` branch.) Every rule that matters (bid amounts, closing times, who may do what) is enforced by Firestore security rules.
 
 - Bidders sign in with Google, see live prices and countdowns, and get "winning" / "outbid" badges.
+- An outbid alert (toast, plus a browser notification when the tab is in the background), a "My bids" summary with totals, and highlighted final minutes.
 - Anti-sniping: a bid in the last *N* seconds keeps that item open until *N* seconds after the bid.
 - Increments: a global minimum and maximum, which individual items can override.
 - Admin page: import the auction file with a preview, open or pause bidding, extend or set closing times, see bid history and leading bidders, reset an item, and export winners and bids to CSV.
@@ -13,7 +14,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
 
 ### Firebase project
 
-1. In the [Firebase console](https://console.firebase.google.com/), **create a project**. Google Analytics isn't needed. Stay on the **Spark (free)** plan and never add a billing account.
+1. In the [Firebase console](https://console.firebase.google.com/), **create a project**. Google Analytics isn't needed. Upgrade it to the **Blaze** plan (Firebase console → **Upgrade**), then set up a budget alert (step 7).
 2. **Authentication → Sign-in method → Google → Enable.**
 3. **Authentication → Settings → Authorized domains → Add** `<your-pages-project>.pages.dev` (plus any custom domain).
 4. **Firestore Database → Create database** in production mode. Pick the location closest to your bidders, e.g. `asia-south1` (Mumbai) for Sri Lanka. **The location can't be changed later.**
@@ -22,6 +23,7 @@ A silent-auction web app: Vue 3, Tailwind CSS and Firebase (Google sign-in + Fir
    - **Application restrictions → Websites:** `https://<your-pages-project>.pages.dev/*` and `https://<project-id>.firebaseapp.com/*` (the `authDomain`; the sign-in popup runs there). Add a custom domain here too if you use one.
    - **API restrictions → Restrict key:** Identity Toolkit API, Token Service API, Cloud Firestore API, Firebase App Check API.
    - Pages preview URLs (`https://<hash>.<name>.pages.dev`) are then blocked, so always test on the main URL. A script can fake the `Referer` header, so this only stops casual reuse of the key; App Check is the real protection.
+7. **Budget alert.** Blaze has no hard spending cap, so a script abusing the site would cost money instead of hitting a limit. Google Cloud console → **Billing → Budgets & alerts → Create budget**: scope it to this project, set an amount such as $5, and keep the email alerts at 50%, 90% and 100%. A normal auction costs cents, so an alert means something is wrong (see the abuse step in the runbook).
 
 ### Allowed sign-in domain
 
@@ -32,7 +34,7 @@ Only Google accounts on the domains in **`VITE_ALLOWED_DOMAINS`** (comma-separat
 
 - The rules are the real check: any other account (or an unverified email) gets no reads or writes at all.
 - The app asks Google to offer only that Workspace's accounts (`hd`), and signs out any other account with a message.
-- Firebase Authentication still records an outsider who picks another account, because Spark has no blocking functions. Those users can't do anything; delete them in **Authentication → Users** if you like.
+- Firebase Authentication still records an outsider who picks another account, because the app uses no blocking functions. Those users can't do anything; delete them in **Authentication → Users** if you like.
 - Stronger, optional: if the Firebase project belongs to your Google Workspace organisation, set **Google Cloud console → APIs & Services → OAuth consent screen → User type: Internal**. Google then refuses other accounts before they reach Firebase.
 
 ### Deploy the security rules and indexes
@@ -63,20 +65,20 @@ GitHub Actions only runs lint, unit and rules tests; it needs no secrets.
 1. Open the site and **sign in** once.
 2. Firebase console → **Authentication → Users**: copy your **User UID**.
 3. **Firestore → Start collection** `admins` → document ID = *your UID* → no fields needed → Save.
-4. **Sign out and back in.** An **Admin** button appears. The app remembers each user's admin status for 30 minutes, and signing out refreshes it.
+4. **Reload the page.** An **Admin** button appears (admin status is checked on every page load).
 
 Only accounts listed in `admins` can import items, change settings or see bidder names. Nobody can add themselves from the app.
 
 ### Optional: App Check
 
-App Check makes Firestore reject requests that don't come from your site, such as scripts that could burn through the free read quota.
+App Check makes Firestore reject requests that don't come from your site, such as scripts that could run up your read bill.
 
 1. Google Cloud console → **reCAPTCHA** (now called **Fraud Defense**) → create a **website, score-based** key for your site's domain (`<name>.pages.dev`).
    Then Firebase console → **App Check → Apps → your web app → reCAPTCHA Enterprise** and register that site key. Plain reCAPTCHA v3 is deprecated in App Check and the app uses the Enterprise provider.
 2. Add the site key as `VITE_APPCHECK_SITE_KEY` in `.env.local`, then redeploy (`npm run deploy:site`).
 3. Watch **App Check → Firestore** metrics for a day. Once almost all requests show as *verified*, click **Enforce**.
 
-The free tier (10,000 assessments a month) comfortably covers ~100 bidders: App Check asks reCAPTCHA about once an hour per open browser. No billing account is needed below that. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.
+The free tier (10,000 assessments a month) comfortably covers ~100 bidders: App Check asks reCAPTCHA about once an hour per open browser. Enforcement can block a few users with aggressive privacy extensions, so only enforce once the metrics look clean.
 
 ---
 
@@ -119,7 +121,7 @@ items:
 - [ ] API key restricted to your site and the `authDomain`, and to the four APIs (setup step 6).
 - [ ] `data/auction.yml` has the real `endTime`, prices and increments, and every image loads.
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
-- [ ] **Schedule:** Firestore's free quota resets at **midnight US Pacific time** (12:30 in Sri Lanka during US summer time, 13:30 otherwise). Run the busiest part, the closing, after the reset on the same day.
+- [ ] Budget alert set up (setup step 7), and App Check enforced.
 - [ ] Test on a phone. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
 - [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, pause, **reset those test bids** (bidding must be paused), and re-check prices.
 - [ ] Decide what to post in the bidding-paused message and how you'll contact winners.
@@ -128,42 +130,30 @@ items:
 
 1. Admin → **Open bidding**.
 2. Keep the admin page open. It shows live prices, leading bidders, bid counts and items closing soon.
-3. Watch usage in Firebase console → **Firestore → Usage**. See the budget below.
+3. Glance at Firebase console → **Firestore → Usage** now and then. See the cost section below for what's normal.
 4. **Problems** (wrong price, item withdrawn): *Pause bidding* with a message, fix the item (set its closing time, or reset its bids while paused), then *Open bidding*. To withdraw an item, pause first: setting its closing time in the past doesn't close it if its last bid was within the anti-snipe window (2 minutes by default).
-5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast): Firebase console → **Authentication → Users** → find the account → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour**, because a signed-in session stays valid until it expires and the rules don't check whether the account has been disabled. If they're bidding abusively, *Pause bidding* with a message until then.
+5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast, or a budget alert): Firebase console → **Authentication → Users** → find the account → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour**, because a signed-in session stays valid until it expires and the rules don't check whether the account has been disabled. If they're bidding abusively, *Pause bidding* with a message until then.
 6. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
 7. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
 
-## 5. Free-tier budget
+## 5. Cost
 
-Spark allows **50,000 reads and 20,000 writes per day**. Writes are no concern: a bid is 2 writes. Reads are the constraint. When the quota runs out, the site stops updating until the daily reset. There's no bill, but the auction stalls.
+Reads are what you pay for; writes are negligible (a bid is 2 writes). The first **50,000 reads a day are free**, and beyond that reads cost a few US cents per 100,000 (see Firestore pricing for your database's location).
 
-To keep reads low, the app loads all item details from **one** catalog document. It only keeps live prices for the items on your screen, the items you've bid on and the item you have open. A bid therefore only costs reads for the people actually looking at that item.
-
-The load test (`npm run load`: 100 simulated bidders, real rules, emulator) measured:
+Every open tab listens to all items, so every card always shows the current price. The load test (`npm run load`: simulated bidders, real rules, emulator) measured:
 
 | What | Reads |
 |---|---|
-| Opening the site fresh | ~9 (catalog + the cards on screen + settings) |
-| Re-opening within 30 min | only what changed (local cache) |
-| **Each bid** | **≈ 1 per person looking at that item** (~42 with 100 people online and 20 items) + ~4 |
+| Opening the site | ~22 (20 items, settings, your own bids) |
+| **Each bid** | **1 per open tab** + ~4 (transaction and rule checks) |
 
-| Day (20 items, measured 2026-09-25) | Reads |
-|---|---|
-| 400 page loads, 600 bids, 60 people online on average | ~21k ✅ |
-| 400 page loads, 1,000 bids, 60 people online on average | ~33k ✅ |
-| 400 page loads, 1,000 bids, 100 people online all day | ~49k ⚠ at the limit |
-| 600 page loads, 1,500 bids, 60 people online on average | ~49k ⚠ at the limit |
-| 600 page loads, 1,500 bids, 100 people online all day | ~74k ❌ over |
+| Day (20 items, measured 2026-09-26) | Reads | Cost beyond the free tier |
+|---|---|---|
+| 400 page loads, 600 bids, 100 people online (the 30-minute window) | ~70k | ~1 cent |
+| 400 page loads, 1,000 bids, 100 online | ~112k | ~4 cents |
+| 600 page loads, 1,500 bids, 100 online | ~168k | ~7 cents |
 
-Fewer items means more reads per bid: each person's screen shows a bigger share of the catalogue, so more people are watching any item that gets a bid. With 44 items the same 1,000-bid day was ~21k. If most bidders will be online all day, watch **Firestore → Usage** and hold the closing until after the quota reset.
-
-**Multiple tabs and refreshing:**
-- The tabs of one browser share a single connection, so extra tabs cost nothing.
-- Refreshing is throttled. From the 3rd page load within a minute, the page shows the last known prices from the browser's cache and reconnects after 15, 30, then 60 seconds, with a "No need to refresh" banner. Someone hitting refresh repeatedly costs at most about one full load per minute.
-- The header shows a green **Live** dot, so people can see prices update by themselves.
-
-The app also disconnects when a tab has been hidden for 3 minutes (phones locked, other apps). If the Usage graph approaches the limit, pausing bidding does **not** help; the reads come from viewers, not bidders.
+Refreshing and extra tabs cost a page load each (~22 reads), which is nothing at this scale. The real risk is abuse: someone scripting reads from a signed-in account. That's why the site requires sign-in on your domain, App Check is enforced, and the budget alert (setup step 7) tells you if something is off.
 
 ---
 
@@ -183,14 +173,13 @@ npm run seed -- --admin-only you@example.com   # after signing in once: make tha
 npm test                          # unit tests
 npm run test:docker               # lint + unit + security-rules tests in Docker
 npm run smoke -- --users 20       # end-to-end checks against the running emulators
-npm run load -- --users 100       # load test + read-budget projection (--mode all to compare)
+npm run load -- --users 100       # load test + reads and cost projection
 npm run check                     # emulator data integrity (bids vs. item state)
 
 # Browser checks (headless Chrome via puppeteer-core; needs Chrome installed, or set CHROME_PATH).
 # With emulators running, then: npm run seed, npm run smoke (creates test accounts), npm run dev
 npm run e2e:bidder                # grid, live prices, bidding, dialog, filters, phone layout, offline
-npm run e2e:tabs                  # extra tabs share one Firestore connection
-npm run e2e:reload                # rapid reloads: cached prices + cooldown (~1.5 min)
+npm run e2e:outbid                # two bidders: outbid toast, "Bid again", My-bids summary
 npm run seed -- --admin-only smoke0@example.com && npm run e2e:admin   # admin page; changes data, re-seed after
 # HEADFUL=1 to watch; screenshots go to test-results/browser/
 ```

@@ -78,9 +78,6 @@ export async function signIn(browser, page, email) {
   await waitForText(page, 'Lot 0')
 }
 
-export const livePriceCount = (page) =>
-  page.$$eval('main .grid > button', (bs) => bs.filter((b) => !b.querySelector('[aria-label="Loading price"]')).length)
-
 // Collects console errors/warnings and page errors, ignoring the noise the checks
 // cause on purpose (offline mode) and known-broken external images.
 export function collectConsole(page) {
@@ -93,22 +90,6 @@ export function collectConsole(page) {
   })
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
   return errors
-}
-
-// Counts the Firestore listen targets a page adds (each costs reads on a real project).
-export function trackListens(page) {
-  const s = { posts: 0, targets: 0, resumed: 0 }
-  page.on('request', (req) => {
-    if (!req.url().includes('/Listen/channel') || req.method() !== 'POST') return
-    s.posts++
-    const body = decodeURIComponent((req.postData() ?? '').replace(/\+/g, ' '))
-    for (const m of body.matchAll(/"addTarget":\{(.*?)"targetId"/g)) {
-      s.targets++
-      if (/"resumeToken"/.test(m[1])) s.resumed++
-    }
-  })
-  s.reset = () => Object.assign(s, { posts: 0, targets: 0, resumed: 0 })
-  return s
 }
 
 // Minimal assertion bookkeeping shared by the scripts.

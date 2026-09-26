@@ -22,7 +22,7 @@ service cloud.firestore {
     // ---------- helpers ----------
 
     // Only verified accounts on the allowed domains get any access (reads too, so
-    // outsiders can't spend the read quota). The domains are rendered in from
+    // outsiders can't run up the read bill). The domains are rendered in from
     // VITE_ALLOWED_DOMAINS, the same variable the client uses (src/lib/access.js).
     // demo-* projects exist only in the emulator, whose test accounts are @example.com.
     function allowedEmail() {
@@ -112,13 +112,6 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Display data for all items in one document (catalog/items), so a page
-    // load costs one read. Items themselves remain authoritative for bidding.
-    match /catalog/{docId} {
-      allow read: if signedIn();
-      allow write: if isAdmin();
-    }
-
     match /admins/{uid} {
       // Managed only from the Firebase console.
       allow read: if signedIn() && request.auth.uid == uid;
@@ -136,7 +129,7 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.lastSeen == request.time;
       // Only the login touch (lastSeen), at most once a minute: unlimited updates
-      // would let one bidder burn the daily write quota (Spark: 20k) and stop all
+      // would let one bidder run up the write bill; on the free plan they would stop all
       // bidding. The name is fixed at creation, so nobody can rename themselves
       // to look like another bidder in the admin exports.
       allow update: if isGoogleUser()

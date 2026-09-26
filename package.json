@@ -20,8 +20,7 @@
     "check": "node scripts/check-integrity.mjs",
     "e2e:bidder": "node scripts/browser/bidder.mjs",
     "e2e:admin": "node scripts/browser/admin.mjs",
-    "e2e:tabs": "node scripts/browser/tabs.mjs",
-    "e2e:reload": "node scripts/browser/reload.mjs",
+    "e2e:outbid": "node scripts/browser/outbid.mjs",
     "emulators:docker": "docker build -t auction-vue-test . && docker run --rm -it -p 127.0.0.1:4000:4000 -p 127.0.0.1:4400:4400 -p 127.0.0.1:8080:8080 -p 127.0.0.1:9099:9099 auction-vue-test sh -c \"npm run rules && npx firebase emulators:start --only firestore,auth --project demo-auction --config firebase.docker.json\"",
     "emulators": "npm run rules && firebase emulators:start --only firestore,auth --project demo-auction"
   },

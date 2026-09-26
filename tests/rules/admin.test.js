@@ -94,8 +94,6 @@ describe('import', () => {
     expect(res.skipped).toEqual(['item-001'])
     const [one] = await raw(listItems)
     expect(one).toMatchObject({ title: 'One (edited)', startingPrice: 100, currentAmount: 100, bidCount: 1, highBidderUid: 'alice' })
-    const catalog = (await raw((fs) => getDoc(doc(fs, 'catalog/items')))).data()
-    expect(catalog.items['item-001']).toMatchObject({ title: 'One (edited)', startingPrice: 100 })
   })
 
   it('bids reset between a warned preview and the apply: the price follows the new starting price', async () => {
@@ -112,14 +110,12 @@ describe('import', () => {
     expect((await raw(listItems))[0]).toMatchObject({ startingPrice: 150, currentAmount: 150, bidCount: 0 })
   })
 
-  it('an item deleted between preview and apply is left out of the catalog', async () => {
+  it('an item deleted between preview and apply is not brought back', async () => {
     await importAs('admin', file(THREE))
     const plan = planImport(file(THREE.replace('title: Two,', 'title: Two (edited),')), await raw(listItems))
     await raw((fs) => deleteDoc(doc(fs, 'items/item-002')))
 
     await applyImport(db('admin'), plan)
-    const catalog = (await raw((fs) => getDoc(doc(fs, 'catalog/items')))).data()
-    expect(Object.keys(catalog.items).sort()).toEqual(['item-001', 'item-003'])
     expect((await raw(listItems)).map((i) => i.id)).toEqual(['item-001', 'item-003'])
   })
 
@@ -134,50 +130,14 @@ describe('import', () => {
   })
 })
 
-describe('catalog', () => {
-  const getCatalog = (fs) => getDoc(doc(fs, 'catalog/items')).then((s) => s.data())
-
-  it('import writes one catalog doc with display data for every item', async () => {
-    await importAs('admin', file(THREE))
-    const cat = await raw(getCatalog)
-    expect(Object.keys(cat.items)).toEqual(['item-001', 'item-002', 'item-003'])
-    expect(cat.items['item-001']).toMatchObject({ order: 1, title: 'One', startingPrice: 100, specs: [{ name: 'CPU', value: 'i5' }] })
-    expect(cat.items['item-001']).not.toHaveProperty('bidCount')
-  })
-
-  it('removed items leave the catalog; kept items without file entries stay', async () => {
-    await importAs('admin', file(THREE))
-    await importAs('admin', file('  - { id: 1, title: One, startingPrice: 100, specs: { CPU: i5 } }'), { removeMissing: false })
-    expect(Object.keys((await raw(getCatalog)).items)).toEqual(['item-001', 'item-002', 'item-003'])
-    await importAs('admin', file('  - { id: 1, title: One, startingPrice: 100, specs: { CPU: i5 } }'), { removeMissing: true })
-    expect(Object.keys((await raw(getCatalog)).items)).toEqual(['item-001'])
-  })
-
-  it('extend updates the item and its catalog entry together', async () => {
+describe('extend', () => {
+  it("extend moves the item's closing time", async () => {
     await importAs('admin', file(THREE))
     const settings = await raw(getSettings)
     const [item] = await raw(listItems)
     await extendItem(db('admin'), item, settings, 10 * 60_000)
     const [after] = await raw(listItems)
-    const cat = await raw(getCatalog)
-    expect(cat.items['item-001'].endTime.toMillis()).toBe(after.endTime.toMillis())
-    expect(cat.items['item-001'].title).toBe('One') // merge kept the other fields
-  })
-
-  it('signed-in users can read it, guests and non-admin writers cannot', async () => {
-    await importAs('admin', file(THREE))
-    await assertSucceeds(getDoc(doc(db('alice'), 'catalog/items')))
-    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'catalog/items')))
-    await assertFails(setDoc(doc(db('alice'), 'catalog/items'), { items: {} }))
-  })
-
-  it('plan flags a missing or stale catalog even when items are unchanged', async () => {
-    await importAs('admin', file(THREE))
-    const items = await raw(listItems)
-    expect(planImport(file(THREE), items, null).catalogStale).toBe(true)
-    const { catalogItems } = await import('../../src/lib/catalog.js')
-    const entries = catalogItems(await raw(getCatalog))
-    expect(planImport(file(THREE), items, entries).catalogStale).toBe(false)
+    expect(after.endTime.toMillis()).toBeGreaterThanOrEqual(item.endTime.toMillis() + 10 * 60_000)
   })
 })
 

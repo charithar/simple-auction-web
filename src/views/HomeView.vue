@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
@@ -8,7 +8,9 @@ import { viewFor, matchesFilter } from '../lib/itemView.js'
 import { allowedDomainsText } from '../lib/access.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
-import { useVisibleWatches } from '../composables/useVisibleWatches.js'
+import OutbidToasts from '../components/OutbidToasts.vue'
+import { myBidsSummary, formatTotal } from '../lib/myBids.js'
+import { useOutbidAlerts } from '../composables/useOutbidAlerts.js'
 
 const auth = useAuthStore()
 const auction = useAuctionStore()
@@ -22,7 +24,7 @@ const search = ref('')
 
 // The open item lives in the URL (#/?item=item-007) so it survives reloads and can be shared.
 // Only item-NNN ids (itemDocId): anything else in a crafted link would reach doc()
-// as a path (e.g. "x/bids/1"), start a listener and cost a read.
+// as a path (e.g. "x/bids/1") when bidding.
 const ITEM_ID = /^item-\d{3,}$/
 const openItemId = computed(() => {
   const id = route.query.item
@@ -39,32 +41,17 @@ const rows = computed(() => {
   return auction.items.map((item) => ({ item, view: viewFor(item, ctx) }))
 })
 
-// Live prices only for cards on (or near) the screen, re-checked every few
-// seconds and when the tab comes back (see composables/useVisibleWatches.js).
-const RECONCILE_MS = 5_000
-const { vWatchVisible, reconcile, stop } = useVisibleWatches(auction)
-const reconcileTimer = setInterval(reconcile, RECONCILE_MS)
-const onVisibilityChange = () => {
-  if (document.visibilityState === 'visible') reconcile()
-}
-document.addEventListener('visibilitychange', onVisibilityChange)
-onUnmounted(() => {
-  clearInterval(reconcileTimer)
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-  stop()
-})
-
 const price = (item) => item.currentAmount ?? item.startingPrice
 
+// The bidder's position: winning (and what that commits them to), outbid, won.
+const mine = computed(() => myBidsSummary(rows.value))
 const counts = computed(() => {
-  const c = { mine: 0, winning: 0, outbid: 0 }
-  for (const { view } of rows.value) {
-    if (view.standing) c.mine++
-    if (view.standing === 'winning') c.winning++
-    if (view.standing === 'outbid') c.outbid++
-  }
-  return c
+  const m = mine.value
+  return { mine: m.winning.length + m.outbid.length + m.won.length + m.lost.length, outbid: m.outbid.length }
 })
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+const { toasts, dismiss } = useOutbidAlerts(rows, openItem)
 
 const visible = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -93,7 +80,7 @@ const filters = computed(() => [
 <template>
   <div v-if="!auth.ready" class="py-16 text-center text-slate-500">Loading…</div>
 
-  <!-- Items are readable only when signed in (protects the free read quota). -->
+  <!-- Items are readable only when signed in (keeps outsiders from running up reads). -->
   <section v-else-if="!auth.signedIn" class="mx-auto max-w-md py-16 text-center">
     <h1 class="text-2xl font-semibold">Welcome to the auction</h1>
     <p class="mt-2 text-slate-600">Sign in with your {{ allowedDomainsText() }} Google account to see the items and place bids.</p>
@@ -111,19 +98,9 @@ const filters = computed(() => [
       {{ auction.error }}
     </div>
 
-    <div
-      v-if="auction.connection === 'cooldown'"
-      class="mb-4 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900"
-      role="status"
-    >
-      <strong>No need to refresh:</strong> prices and countdowns update by themselves.
-      Showing the last known prices; live updates resume in
-      {{ Math.max(1, Math.ceil((auction.cooldownUntil - now) / 1000)) }}s.
-    </div>
-
     <div v-if="!auction.loaded" class="py-16 text-center text-slate-500">Loading items…</div>
 
-    <div v-else-if="!auction.settings || !auction.catalog?.length" class="py-16 text-center text-slate-500">
+    <div v-else-if="!auction.settings || !auction.items.length" class="py-16 text-center text-slate-500">
       The auction hasn't been set up yet. Check back soon.
     </div>
 
@@ -138,12 +115,17 @@ const filters = computed(() => [
       </div>
 
       <div
-        v-if="counts.winning || counts.outbid"
-        class="mb-4 flex flex-wrap gap-x-4 gap-y-1 rounded-lg bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200"
+        v-if="mine.winning.length || mine.outbid.length || mine.won.length"
+        class="mb-4 flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200"
       >
-        <span v-if="counts.winning" class="font-medium text-emerald-700">You're winning {{ counts.winning }} item{{ counts.winning === 1 ? '' : 's' }}</span>
-        <button v-if="counts.outbid" type="button" class="font-medium text-rose-700 underline-offset-2 hover:underline" @click="filter = 'outbid'">
-          Outbid on {{ counts.outbid }}: bid again?
+        <span v-if="mine.won.length" class="font-semibold text-emerald-800">
+          You won {{ plural(mine.won.length, 'item') }}: {{ formatTotal(mine.won) }} in total
+        </span>
+        <span v-if="mine.winning.length" class="font-medium text-emerald-700">
+          Winning {{ plural(mine.winning.length, 'item') }} · {{ formatTotal(mine.winning) }} if they close now
+        </span>
+        <button v-if="mine.outbid.length" type="button" class="font-medium text-rose-700 underline-offset-2 hover:underline" @click="filter = 'outbid'">
+          Outbid on {{ mine.outbid.length }}: bid again?
         </button>
       </div>
 
@@ -186,7 +168,6 @@ const filters = computed(() => [
         <ItemCard
           v-for="r in visible"
           :key="r.item.id"
-          v-watch-visible="r.item.id"
           :item="r.item"
           :view="r.view"
           @open="openItem"
@@ -194,6 +175,7 @@ const filters = computed(() => [
       </div>
 
       <BidDialog :item-id="openItemId" :now="now" @close="closeItem" />
+      <OutbidToasts :toasts="toasts" @open="openItem" @dismiss="dismiss" />
     </template>
   </template>
 </template>

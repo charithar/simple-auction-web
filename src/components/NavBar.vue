@@ -20,13 +20,9 @@ const route = useRoute()
       >
         <span
           class="size-2 rounded-full"
-          :class="{
-            'animate-pulse bg-emerald-400': auction.connection === 'live',
-            'bg-amber-400': auction.connection === 'cooldown' || auction.connection === 'connecting',
-            'bg-slate-500': auction.connection === 'paused',
-          }"
+          :class="auction.connection === 'live' ? 'animate-pulse bg-emerald-400' : 'bg-amber-400'"
         ></span>
-        <span class="hidden sm:inline">{{ { live: 'Live', cooldown: 'Reconnecting…', connecting: 'Connecting…', paused: 'Paused' }[auction.connection] }}</span>
+        <span class="hidden sm:inline">{{ auction.connection === 'live' ? 'Live' : 'Connecting…' }}</span>
       </span>
       <span v-else class="mr-auto"></span>
 

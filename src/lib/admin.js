@@ -1,10 +1,9 @@
 import {
   collection, collectionGroup, deleteField, doc, getDoc, getDocs, orderBy, query, runTransaction, setDoc,
-  Timestamp, writeBatch,
+  Timestamp, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { newItemDoc } from './importItems.js'
 import { effectiveEnd, toMillis } from './auction.js'
-import { catalogRef, catalogDoc, CATALOG_FIELDS } from './catalog.js'
 
 // Fields an import may change on an existing item. Bid state
 // (currentAmount, bidCount, highBidderUid, lastBidAt) is never touched,
@@ -21,10 +20,9 @@ const same = (a, b) => {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 }
 
-// Compares a parsed auction file with the items (and catalog) currently in Firestore.
+// Compares a parsed auction file with the items currently in Firestore.
 // Pure: returns what applyImport() would do, for preview.
-// existingCatalog: catalog entries ([{ id, ... }], see catalogItems) or null if none yet.
-export function planImport(parsed, existingItems, existingCatalog = null) {
+export function planImport(parsed, existingItems) {
   const existing = new Map(existingItems.map((it) => [it.id, it]))
   const creates = []
   const updates = []
@@ -50,20 +48,11 @@ export function planImport(parsed, existingItems, existingCatalog = null) {
   }
 
   const fileIds = new Set(parsed.items.map((it) => it.id))
-  const missingDocs = existingItems.filter((it) => !fileIds.has(it.id))
-  const missing = missingDocs.map((it) => ({ id: it.id, title: it.title, hasBids: it.bidCount > 0 }))
+  const missing = existingItems
+    .filter((it) => !fileIds.has(it.id))
+    .map((it) => ({ id: it.id, title: it.title, hasBids: it.bidCount > 0 }))
 
-  // Does the catalog already describe exactly these items? (Keeps a catalog-only
-  // repair possible, e.g. the first import after adding the catalog.)
-  const current = new Map((existingCatalog ?? []).map((e) => [e.id, e]))
-  const expected = [...parsed.items, ...missingDocs]
-  const catalogStale = !existingCatalog || current.size !== expected.length ||
-    expected.some((it) => {
-      const e = current.get(it.id)
-      return !e || CATALOG_FIELDS.some((f) => !same(it[f], e[f]))
-    })
-
-  return { settings: parsed.settings, items: parsed.items, creates, updates, unchanged, missing, missingDocs, catalogStale }
+  return { settings: parsed.settings, items: parsed.items, creates, updates, unchanged, missing }
 }
 
 // Writes an import plan. Items with bids are never deleted.
@@ -87,11 +76,9 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
     ops.push((b) => b.set(doc(db, 'items', item.id), { ...newItemDoc(item), endTime: Timestamp.fromDate(item.endTime) }))
   }
   let removed = 0
-  const removedIds = new Set()
   if (removeMissing) {
     for (const m of plan.missing.filter((x) => !x.hasBids)) {
       ops.push((b) => b.delete(doc(db, 'items', m.id)))
-      removedIds.add(m.id)
       removed++
     }
   }
@@ -104,17 +91,12 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
     await batch.commit()
   }
 
-  const kept = new Map() // id -> current item, for items that got bids since the preview
-  const gone = new Set() // items deleted since the preview (e.g. by another admin)
+  const skipped = new Set() // items that got bids since the preview
   for (const { item, changes, hasBids } of plan.updates) {
     const ref = doc(db, 'items', item.id)
     await runTransaction(db, async (tx) => {
       const cur = (await tx.get(ref)).data()
-      if (!cur) {
-        gone.add(item.id)
-        return
-      }
-      gone.delete(item.id)
+      if (!cur) return // deleted since the preview (e.g. by another admin)
       const bidsSincePreview = !hasBids && cur.bidCount > 0
       const patch = {}
       for (const f of changes) {
@@ -125,35 +107,18 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
       // The price follows the starting price while the item has no bids, judged
       // now (bids may have landed, or been reset, since the preview).
       if (cur.bidCount === 0 && changes.includes('startingPrice')) patch.currentAmount = item.startingPrice
-      if (bidsSincePreview) kept.set(item.id, cur)
-      else kept.delete(item.id)
+      if (bidsSincePreview) skipped.add(item.id)
+      else skipped.delete(item.id)
       if (Object.keys(patch).length) tx.update(ref, patch)
     })
   }
 
-  // Rebuild the catalog from the file plus any kept items that aren't in it.
-  // Items that kept their terms keep them in the catalog too; items deleted
-  // since the preview are left out (a card without a document would never load).
-  const catalogItems = plan.items.filter((it) => !gone.has(it.id)).map((it) => {
-    const cur = kept.get(it.id)
-    if (!cur) return it
-    const merged = { ...it }
-    for (const f of SENSITIVE_WITH_BIDS) merged[f] = cur[f]
-    return merged
-  })
-  await setDoc(catalogRef(db), catalogDoc([...catalogItems, ...plan.missingDocs.filter((d) => !removedIds.has(d.id))]))
-  return { created: plan.creates.length, updated: plan.updates.length, removed, skipped: [...kept.keys()] }
+  return { created: plan.creates.length, updated: plan.updates.length, removed, skipped: [...skipped] }
 }
 
 export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction'), patch, { merge: true })
 
-// Writes a new closing time to the item and its catalog entry together.
-function writeEnd(db, itemId, endTime) {
-  const batch = writeBatch(db)
-  batch.update(doc(db, 'items', itemId), { endTime })
-  batch.set(catalogRef(db), { items: { [itemId]: { endTime } } }, { merge: true })
-  return batch.commit()
-}
+const writeEnd = (db, itemId, endTime) => updateDoc(doc(db, 'items', itemId), { endTime })
 
 // Pushes the item's closing time to max(effective end, now) + ms.
 export function extendItem(db, item, settings, ms, now = Date.now()) {

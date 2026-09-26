@@ -1,11 +1,10 @@
 <script setup>
-import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { db } from '../firebase.js'
-import { subscribeItems } from '../lib/items.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
-import { itemView } from '../lib/itemView.js'
+import { viewFor } from '../lib/itemView.js'
 import { formatMoney } from '../lib/auction.js'
 import { createUserCache, fetchAllBids, winnersCsv, bidsCsv } from '../lib/admin.js'
 import { downloadText, stamp } from '../lib/download.js'
@@ -18,18 +17,10 @@ const auction = useAuctionStore()
 const now = useNow()
 const lookupUser = createUserCache(db)
 
-// Admins watch every item live (bidders only watch what they can see).
-const items = shallowRef([])
-const itemsById = computed(() => new Map(items.value.map((it) => [it.id, it])))
-const listenError = ref('')
-let unsubscribe = null
-onMounted(() => {
-  unsubscribe = subscribeItems(db, (list) => (items.value = list), (e) => {
-    console.error(e)
-    listenError.value = 'Lost the live item feed. Reload the page.'
-  })
-})
-onUnmounted(() => unsubscribe?.())
+// The same live items as the bidder page (stores/auction.js).
+const items = computed(() => auction.items)
+const itemsById = computed(() => auction.itemsById)
+const listenError = computed(() => auction.error)
 
 const filter = ref('all')
 const exporting = ref('')
@@ -38,7 +29,7 @@ const exportError = ref('')
 const rows = computed(() => {
   if (!auction.settings) return []
   const ctx = { settings: auction.settings, uid: auth.user?.uid, myBidItemIds: new Set(), now: now.value }
-  return items.value.map((item) => ({ item, view: itemView(item, ctx) }))
+  return items.value.map((item) => ({ item, view: viewFor(item, ctx) }))
 })
 
 const stats = computed(() => {
@@ -147,7 +138,6 @@ async function exportBids() {
       <AdminControls v-if="auction.settings" :settings="auction.settings" />
       <AdminImport
         :items="items"
-        :catalog="auction.catalog"
         :settings="auction.settings"
         :class="{ 'lg:col-span-2': !auction.settings }"
       />

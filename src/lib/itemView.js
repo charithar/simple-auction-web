@@ -1,49 +1,24 @@
-import { effectiveEnd, minNextBid, maxNextBid, toMillis } from './auction.js'
+import { effectiveEnd, minNextBid, maxNextBid } from './auction.js'
 
-// Catalog-only item (live doc not loaded yet): the scheduled end is known,
-// price, bids and anti-snipe extensions are not. `confirmedEnded` (set by the
-// store) means the item was seen ended with live data and can't reopen.
-export function pendingView(item, now) {
-  const end = toMillis(item.endTime)
-  const remaining = end - now
-  return {
-    live: false,
-    confirmedEnded: item.confirmedEnded === true,
-    end,
-    remaining,
-    ended: remaining <= 0,
-    extended: false,
-    status: remaining <= 0 ? 'ended' : remaining < 5 * 60_000 ? 'closing' : 'open',
-    standing: null,
-    canBid: false,
-    minBid: null,
-    maxBid: null,
-  }
-}
+// The last minutes of an item: highlighted on the card, since that's when
+// anti-snipe extensions and last bids happen.
+export const FINAL_MS = 2 * 60_000
 
-// Text to pre-fill the bid box with: the minimum bid, or empty while the price
-// is still loading (the dialog fills it in when the live data arrives).
+// Text to pre-fill the bid box with: the minimum bid, or empty if there's no view.
 export const initialBidText = (view) => (view?.minBid != null ? String(view.minBid) : '')
 
-// The grid's filter tabs. "Open" hides an item only when its end is certain:
-// from live data, or confirmed ended earlier (see stores/auction.js). A
-// catalog-only view past its scheduled end may still be extended by anti-snipe;
-// hiding it would unmount the card, which then never goes live and never comes
-// back, exactly while the item is being fought over.
+// The grid's filter tabs.
 export function matchesFilter(filter, view) {
   if (filter === 'mine') return !!view.standing
   if (filter === 'outbid') return view.standing === 'outbid'
-  if (filter === 'open') return !(view.ended && (view.live || view.confirmedEnded))
+  if (filter === 'open') return !view.ended
   return true
 }
 
-// Picks the right view for a merged store item.
-export const viewFor = (item, ctx) => (item.live ? itemView(item, ctx) : pendingView(item, ctx.now))
-
 // Derived, per-viewer state of an item at time `now`.
-// status: 'open' | 'closing' (under 5 min) | 'ended'
+// status: 'open' | 'closing' (under 5 min) | 'ended'; final: under FINAL_MS left
 // standing: null | 'winning' | 'outbid' | 'won' | 'lost'
-export function itemView(item, { settings, uid, myBidItemIds, now }) {
+export function viewFor(item, { settings, uid, myBidItemIds, now }) {
   const end = effectiveEnd(item, settings)
   const remaining = end - now
   const ended = remaining <= 0
@@ -54,12 +29,12 @@ export function itemView(item, { settings, uid, myBidItemIds, now }) {
   if (hasBid) standing = ended ? (isHigh ? 'won' : 'lost') : isHigh ? 'winning' : 'outbid'
 
   return {
-    live: true,
     end,
     remaining,
     ended,
     extended: end > item.endTime.toMillis(),
     status: ended ? 'ended' : remaining < 5 * 60_000 ? 'closing' : 'open',
+    final: !ended && remaining < FINAL_MS,
     standing,
     canBid: !ended && settings.biddingOpen === true,
     minBid: minNextBid(item, settings),

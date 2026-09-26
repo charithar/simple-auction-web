@@ -1,13 +1,13 @@
 # CLAUDE.md: Vue + Firebase auction
 
-A rewrite of `../auction-web` (React). Silent auction for about 20 items (the real `data/auction.yml`; earlier plans had 44) and 100 bidders, with Google sign-in. **Firebase must stay on the free Spark plan.** That means no Cloud Functions, no Cloud Storage, and no billing account. All enforcement happens in `firestore.rules`.
+A rewrite of `../auction-web` (React). Silent auction for about 20 items (the real `data/auction.yml`; earlier plans had 44) and 100 bidders, with Google sign-in. **Firebase is on the paid Blaze plan** (since 2026-09-26; the free-plan version with its read-budget design is kept on the `spark` branch, tag `v1.0-spark`). Keep spending low and the design simple: an auction costs a few cents in reads (see "Cost"). There are still no Cloud Functions and no Cloud Storage; all enforcement happens in `firestore.rules`.
 
 ## Stack
 
 - Vue 3 (`<script setup>`), Vite 8, Vue Router (hash history), Pinia, Tailwind CSS v4 (`@tailwindcss/vite`), Firebase JS SDK v12.
 - `js-yaml` v5 has **named exports only**: `import { load } from 'js-yaml'`.
-- Hosting is Cloudflare Pages by direct upload from the user's machine (`npm run deploy:site -- --project-name <name>`: `vite build` from `.env.local`, then `wrangler pages deploy`). Not Firebase Hosting (Spark's 360 MB/day transfer is too tight) and not GitHub Pages (the deployment is private-purpose). CI (`.github/workflows/ci.yml`) only runs tests and needs no secrets; it has a read-only token and Actions pinned to commit SHAs. `public/_headers` sets noindex, no framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'` against clickjacking), an enforced CSP (a new external script/API/frame host must be added there), COOP `same-origin-allow-popups` (plain `same-origin` breaks the sign-in popup), HSTS, Permissions-Policy and immutable caching for `/assets/*`. Wrangler is a pinned dev dependency (no `npx` download at deploy time). `base: './'` together with hash routing means there's no 404 fallback to manage.
-- Item images must live in `public/` as compressed WebP or on an external URL. Firebase Storage is not available on Spark. Image URLs must be `https://` or site-relative (`lib/images.js`, checked on import and on render). External images load with `referrerpolicy="no-referrer"`, and a broken image falls back to a placeholder (`ItemImage.vue`).
+- Hosting is Cloudflare Pages by direct upload from the user's machine (`npm run deploy:site -- --project-name <name>`: `vite build` from `.env.local`, then `wrangler pages deploy`). Not Firebase Hosting (its free 360 MB/day transfer is tight; Cloudflare's is unlimited) and not GitHub Pages (the deployment is private-purpose). CI (`.github/workflows/ci.yml`) only runs tests and needs no secrets; it has a read-only token and Actions pinned to commit SHAs. `public/_headers` sets noindex, no framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'` against clickjacking), an enforced CSP (a new external script/API/frame host must be added there), COOP `same-origin-allow-popups` (plain `same-origin` breaks the sign-in popup), HSTS, Permissions-Policy and immutable caching for `/assets/*`. Wrangler is a pinned dev dependency (no `npx` download at deploy time). `base: './'` together with hash routing means there's no 404 fallback to manage.
+- Item images must live in `public/` as compressed WebP or on an external URL. Firebase Storage isn't used, to keep the setup simple. Image URLs must be `https://` or site-relative (`lib/images.js`, checked on import and on render). External images load with `referrerpolicy="no-referrer"`, and a broken image falls back to a placeholder (`ItemImage.vue`).
 
 ## Commands
 
@@ -18,15 +18,13 @@ A rewrite of `../auction-web` (React). Silent auction for about 20 items (the re
 - `npm run test:docker`: lint, unit and rules tests inside Docker (`Dockerfile`: Node 22, Temurin 21, emulator JAR included). Use this when Java isn't installed locally.
 - `npm run emulators`: local Auth and Firestore (needs Java). `npm run emulators:docker` starts the same services in Docker; the emulator UI is at http://127.0.0.1:4000. Emulators listen on localhost only: `firebase.json` binds 127.0.0.1, and Docker uses `firebase.docker.json` (0.0.0.0 inside the container) with ports published on 127.0.0.1. Set `VITE_USE_EMULATORS=true` in `.env.local`, then run `npm run dev`.
 - `npm run seed [-- --first-close 5m --admin you@example.com --closed --file x.yml]`: loads `data/auction.yml` into the running emulator (falls back to `data/auction.sample.yml` when the real file is absent). It moves the end times so the first item closes after `--first-close` (default 30m), wipes items and bids, and keeps users. `--admin` needs that emulator user to have signed in once. `--admin-only <email>` grants admin without touching items.
-- `npm run load [-- --users 100 --duration 60 --gap 10 --screen 6 --mode visible|all]`: load test against the running emulators. Simulated bidders bid through `placeBid`, and the script counts billed reads and projects the daily budget.
-  - `visible` (the default) mimics the app: catalog, plus live listeners for the cards on screen, favourites and own bids, with scrolling.
-  - `all` is the old listen-to-everything strategy, kept for comparison.
+- `npm run load [-- --users 100 --duration 60 --gap 10 --price 0.06]`: load test against the running emulators. Simulated bidders listen like the app (settings, all items, own bids) and bid through `placeBid` with `seenBidCount`; the script counts billed reads and projects a day's reads and cost beyond the free 50k (`--price` = USD per 100k reads for your database's location).
   - **Emulator latency grows with the number of listeners and doesn't reflect production.**
-- `npm run e2e:bidder | e2e:tabs | e2e:reload | e2e:admin`: headless-Chrome checks in `scripts/browser/` (puppeteer-core with the local Chrome; `CHROME_PATH`, `APP_URL` and `HEADFUL=1` are optional).
+- `npm run e2e:bidder | e2e:outbid | e2e:admin`: headless-Chrome checks in `scripts/browser/` (puppeteer-core with the local Chrome; `CHROME_PATH`, `APP_URL` and `HEADFUL=1` are optional).
   - Setup: emulators running, then `npm run seed`, `npm run smoke` (creates `smoke0..N@example.com`) and `npm run dev`. `e2e:admin` also needs `seed -- --admin-only smoke0@example.com`, and it changes the data.
+  - `e2e:outbid` uses two browser contexts: A bids, B outbids A, A gets the toast and the summary updates.
   - Sign-in goes through the Auth emulator's account picker. Its list renders before its click handlers are bound, so `signIn()` retries.
   - Wait with `polling: 250`, never animation-frame polling, because background tabs get no animation frames.
-  - `tabs`/`reload` count Firestore listen targets per page (`trackListens`) to check the multi-tab sharing and the reload cooldown.
 - `npm run check`: integrity check of the emulator data. For every item, the bid docs must be exactly 1..bidCount, and the top bid must match `currentAmount` and `highBidderUid`.
 - `npm run smoke [-- --users 20]`: end-to-end check against the running emulators. Fake Google users sign in, profiles sync, the live queries run, and concurrent and sequential bids go through the app's own modules and the real rules.
 - Firebase web config comes from `.env.local` (see `.env.example`). Builds happen only locally (CI doesn't build). `vite.config.js` fails a production build when a required value is missing, or when `VITE_APPCHECK_DEBUG_TOKEN` is set. Never commit it. Always read `import.meta.env.VITE_X` directly: a bare `import.meta.env` makes Vite inline every `VITE_*` value into the bundle.
@@ -48,11 +46,8 @@ items/{item-NNN}        { order, title, subtitle, category, condition, specs[{na
                           currency, startingPrice, endTime, minIncrement?, maxIncrement?,
                           currentAmount, highBidderUid, bidCount, lastBidAt }
 items/{id}/bids/{n}     { amount, uid, createdAt }   n = bidCount as an unpadded string; readable by owner or admin only
-catalog/items           { items: { 'item-NNN': { order, title, ..., images, startingPrice, endTime, increments? } } }
-                        display data for all items in ONE doc (lib/catalog.js); read: signed-in, write: admin.
-                        Rebuilt by every import; endTime is kept in sync by extend/set-end (not by anti-snipe extensions).
 users/{uid}             { name, email, createdAt, lastSeen }       owner and admin; the owner may only touch lastSeen,
-                        at most once a minute (guards the 20k/day write quota; name is fixed at creation)
+                        at most once a minute (limits write spam; name is fixed at creation)
 admins/{uid}            {}   created by hand in the Firebase console; no client writes
 ```
 
@@ -76,56 +71,40 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 
 ## Client structure
 
-- `stores/auction.js` controls the read budget:
-  - It listens to `settings/auction`, the **catalog doc** (1 read per page load) and the user's own bids (`collectionGroup` on `uid`).
-  - Live `items/{id}` docs are watched per item via `watchItem(id, reason)`, reference-counted per reason: `visible` (the IntersectionObserver in `HomeView`, 400px margin), `mine` (items bid on) and `open` (`BidDialog`).
-  - A released item lingers for 20 s before detaching.
-  - Safety net: `composables/useVisibleWatches.js` (the observer, used by `HomeView`) runs `reconcile()` every 5 s and when the tab becomes visible. It re-watches on-screen cards the store no longer counts, watches cards that are on screen by position but were never reported by the observer (after two checks in a row; not in hidden tabs), then calls the store's `checkWatches()` (`lib/watchHealth.js` `findStuck`): a watched item with no listener is attached, and one whose listener has delivered nothing for 10 s is re-subscribed (at most 3 times). Both log a `[auction] …` console warning with `debugState()`, because it means something went wrong. Skipped during the reload cooldown and while paused. Added after one unexplained case on the live site (2026-09-26): many cards stuck on the loading skeleton with no error, until a reload.
-  - `itemsById` merges the catalog with the live docs; `item.live === false` means there's no price yet (`pendingView`, skeleton card).
-  - Everything detaches after the tab has been hidden for 3 minutes, including tabs opened in the background (`init()` starts the timer; they get no `visibilitychange` until shown).
-- **Tabs and reloads** (measured in headless Chrome):
-  - With `persistentMultipleTabManager`, the tabs of one browser share **one** Firestore connection. Extra tabs and reloads while another tab is open cost 0 new listens. When the tab that owns the connection closes or reloads, another tab takes over and re-listens once.
-  - The emulator never issues resume tokens, so we can't verify that production bills reloads only for changes. The design assumes it doesn't.
-  - `lib/loadGuard.js` counts page loads in localStorage, shared across tabs. From the 3rd load within a minute, the store shows **cached data only** (`cached*` helpers, no reads) for 15, 30, then 60 s before listening. Only the item open in the bid dialog goes live during the cooldown (`LIVE_IN_COOLDOWN`), so bidding isn't blocked. The header indicator (`auction.connection`) and a banner tell people refreshing isn't needed.
-  - `stores/auth.js` caches the profile sync and admin check per user for 30 minutes (localStorage), saving 2 reads and 1 write per reload. Not when `syncProfile` couldn't measure the clock offset (`clockOffsetMs: null`: profile touched under a minute ago, or created by another device at the same moment). Sign-out clears the cache; the rules still enforce registration and admin rights.
-- The admin page does **not** use the per-item watches. `AdminView` keeps its own `subscribeItems` listener on the whole collection, because there are only a few admins.
-- `firebase.js` uses `persistentLocalCache`. A listener that reattaches within 30 minutes is billed only for the items that changed.
-- `HomeView.vue` renders the grid with filters (All/Open/My bids/Outbid; `matchesFilter` in `lib/itemView.js`: "Open" hides an item only when its end is certain, from live data or because the store saw it ended before detaching (`confirmedEnded`, keyed by the catalog endTime so an admin extension shows it again). A catalog-only card past its scheduled end may still be extended by anti-snipe, and hiding it would stop it ever going live), search, sort, and a single `useNow()` ticker. The open item is kept in the URL (`#/?item=item-007`).
+- `stores/auction.js`: while signed in, three live listeners: `settings/auction`, **all items** (`subscribeItems`, lot order) and the user's own bids (`collectionGroup` on `uid`). Every card always shows the current price; there are no per-item watches, no skeletons and no cache-only modes. Signing out detaches and clears everything. A failed listener shows a "reload" banner.
+- `firebase.js` uses Firestore's default in-memory cache: each tab has its own connection.
+- `stores/auth.js` syncs the profile (and measures the clock offset) and checks admin on every page load: 2 reads, at most 1 write. `clockOffsetMs: null` (profile touched under a minute ago, or created by another device at the same moment) is used as 0.
+- `HomeView.vue` renders the grid with filters (All/Open/My bids/Outbid, `matchesFilter` in `lib/itemView.js`), search, sort, and a single `useNow()` ticker. The open item is kept in the URL (`#/?item=item-007`).
+  - **My bids summary** (`lib/myBids.js`): "Winning N items · total if they close now", "Outbid on N: bid again?", and after the close "You won N items: total".
+  - **Outbid alerts** (`composables/useOutbidAlerts.js`, `OutbidToasts.vue`): when an item goes from winning to outbid (`newlyOutbid`; never on first load), a toast with "Bid again", plus a browser notification if the tab is in the background and the bidder allowed it (offered in `BidDialog` after a successful bid). Client only, no backend.
+  - **Final minutes** (`FINAL_MS` = 2 min, `view.final`): amber ring on the card, pulsing countdown, and an "extended" pill when anti-snipe has extended the item.
+- The admin page uses the same store (`auction.items`), no listener of its own.
 - `AdminView.vue` (`#/admin`, route-guarded) is built from `components/admin/*` on top of `lib/admin.js`. The library functions take `db` so the emulator tests use them directly.
-  - **Import:** `planImport` (pure diff: creates/updates/unchanged/missing, with warnings when an item that has bids gets a new price, end or increments) and then `applyImport`. It updates each item in a transaction: an item that received bids after the preview keeps its price, end and increments (in the catalog too) and is reported in `skipped`; the price follows a new starting price whenever the item has no bids at apply time; items deleted since the preview are left out of the catalog. Settings are merged, so `biddingOpen` and `message` survive. A first import leaves bidding **closed**. Items with bids are never removed.
+  - **Import:** `planImport` (pure diff: creates/updates/unchanged/missing, with warnings when an item that has bids gets a new price, end or increments) and then `applyImport`. It updates each item in a transaction: an item that received bids after the preview keeps its price, end and increments and is reported in `skipped`; the price follows a new starting price whenever the item has no bids at apply time; items deleted since the preview aren't recreated. Settings are merged, so `biddingOpen` and `message` survive. A first import leaves bidding **closed**. Items with bids are never removed.
   - **Per item:** +5m/+15m (`extendItem` works from max(effective end, now)), set the closing time, bid history, and `resetItemBids`, which **refuses while bidding is open** because a bid landing mid-reset would orphan a bid number. The rules enforce this too (bid deletes need `biddingOpen == false`).
   - **Exports:** winners CSV and all-bids CSV (one read per bid). The CSV has a UTF-8 BOM so Excel opens it correctly. Text cells starting with `= + - @` (tab/CR) get a leading `'`: bidders pick their own names, so this blocks formula injection. Numbers stay numeric.
   - User names and emails come through `createUserCache`: one read per bidder per admin session.
   - Destructive actions use the two-step `ConfirmButton` instead of `confirm()`.
 - `BidDialog.vue` is a native `<dialog>`. It raises the suggested amount when someone outbids you while it's open. On phones the bid box comes before the specs.
 
-## Free-tier budget (the main risk is reads, not cost)
+## Cost (Blaze plan)
 
-- Spark allows 50k reads/day. A bid costs 1 read for each listener on *that item*, plus ~4 (transaction and rules lookups).
-- **Measured** (`npm run load`, 100 bidders online, 6 cards on screen):
-
-  | | items | per page load | fan-out per bid | 400 loads + 1,000 bids, 60 online |
-  |---|---|---|---|---|
-  | `--mode all` (old: everyone watches everything) | 44 | 44 | 83 | ~71k ❌ |
-  | `--mode visible` (the app now) | 44 | ~9 | ~21–25 | ~21k ✅ |
-  | `--mode visible`, real file (2026-09-25) | 20 | ~9 | ~42 | ~33k ✅ |
-
-- **Fewer items means more fan-out per bid:** 6 cards on screen cover a bigger share of a 20-item catalogue, so more bidders watch each item. With 20 items, 1,000 bids with 100 online all day is ~49k (at the limit), and 600 loads + 1,500 bids with 60 online is also ~49k.
-
-- Other mitigations: detach on hidden tabs; the persistent cache (re-attaching within 30 minutes bills only changes); items are readable only when signed in; the only `bids` listener is the user's own; App Check (optional in the code, enforced for Firestore in production).
-- The quota resets at midnight US Pacific time. Schedule the auction after the reset.
+- Reads dominate. A page load costs ~22 reads (20 items, settings, own bids). A bid costs 1 read per open tab (every tab listens to all items) plus ~4 (transaction and rules lookups). The first 50k reads a day are free.
+- **Measured** (`npm run load`, 20 items, 2026-09-26): 20 reads per page load, 1 read per bid per online bidder. Projection for the 30-minute window (400 page loads, 600 bids, ~100 online): **~70k reads, about 1 US cent** beyond the free tier; 1,500 bids with 100 online is ~170k reads, still under 10 cents.
+- **Abuse now costs money instead of causing an outage:** Firebase has no hard spending cap. Mitigations: items readable only when signed in on an allowed domain, App Check enforced for Firestore, the once-a-minute `lastSeen` rule, a **Cloud Billing budget alert** (README setup), and the runbook's "disable the account" step.
 
 ## Milestones
 
 1. ✅ Scaffold, lint, unit tests, CI workflow
 2. ✅ `firestore.rules` and emulator tests
 3. ✅ Auth: `stores/auth.js`, `lib/profile.js` (user doc sync and clock offset, admin check), `stores/clock.js` (`useNow()`), `/admin` guard
-4. ✅ Bidder UI: grid, bid dialog, filters/search/sort, winning/outbid badges, hidden-tab detach, persistent cache, auction file format + converter, `seed` and `smoke` scripts. Checked in headless Chrome on desktop and mobile.
+4. ✅ Bidder UI: grid, bid dialog, filters/search/sort, winning/outbid badges, auction file format + converter, `seed` and `smoke` scripts. Checked in headless Chrome on desktop and mobile.
 5. ✅ Admin: import with a diff preview, bidding on/off and message, live table with leading bidder, bid history, extend/set closing time, reset bids (only while paused), stats, winners and all-bids CSV. Emulator tests are in `tests/rules/admin.test.js`; checked in headless Chrome.
 6. ✅ Hardening:
    - Optional App Check (reCAPTCHA Enterprise, aka Fraud Defense, via `ReCaptchaEnterpriseProvider`; plain v3 is deprecated in App Check). It's dynamically imported behind a top-level await in `firebase.js`, only when `VITE_APPCHECK_SITE_KEY` is set at build time.
    - Offline banner, and bidding disabled while offline (`composables/useOnline.js`).
    - Load test.
    - README: setup, checklist, day-of runbook, budget.
-8. ✅ Tabs/reload protection: shared connection across tabs (verified), reload cooldown served from cache, profile/admin check cached for 30 minutes, "Live" indicator.
-7. ✅ Read budget (option B): catalog doc plus per-item live listeners for visible, bid-on and open items. About 3× less bid fan-out and about 5× cheaper page loads, measured with `npm run load`. Retry on transient denials; `npm run check` for integrity.
+7. ✅ Read budget for the free plan: catalog doc plus per-item live listeners, reload cooldown, shared tab connection. **Replaced by 9**; kept on the `spark` branch.
+8. ✅ Three-angle reviews (rules/logic, load, browser), two rounds; their fixes are in the code and tests.
+9. ✅ Blaze plan: removed the read-budget machinery (catalog, visibility watches and self-repair, reload cooldown, hidden-tab pause, multi-tab persistence, profile cache); all items live. Added the My-bids summary, outbid toasts/notifications and final-minutes emphasis.

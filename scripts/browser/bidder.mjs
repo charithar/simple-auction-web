@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Bidder flow in headless Chrome: sign-in, grid, lazy live prices, bidding,
+// Bidder flow in headless Chrome: sign-in, grid, live prices, bidding,
 // dialog URL, filters, mobile layout, offline banner.
 // Prereqs: emulators + `npm run seed` + `npm run smoke` (creates the test accounts) + `npm run dev`.
-import { launch, signIn, waitForText, clickText, livePriceCount, collectConsole, checker, sleep, OUT } from './helpers.mjs'
+import { launch, signIn, waitForText, clickText, collectConsole, checker, sleep, OUT } from './helpers.mjs'
 
 const { check, done } = checker()
 const browser = await launch()
@@ -20,14 +20,8 @@ try {
   check(cards > 0, `grid shows ${cards} items`)
   check(/Live/.test(nav), 'header shows the Live indicator')
 
-  const liveTop = await livePriceCount(page)
-  check(liveTop > 0 && liveTop < cards, `only cards near the screen are live (${liveTop} of ${cards})`)
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-  await sleep(2000)
-  const lastLive = await page.$$eval('main .grid > button', (bs) => !bs.at(-1).querySelector('[aria-label="Loading price"]'))
-  check(lastLive, 'scrolling to the bottom makes the last card live')
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await sleep(500)
+  const priced = await page.$$eval('main .grid > button', (bs) => bs.filter((b) => /Starting price|\d+ bids?/.test(b.innerText)).length)
+  check(priced === cards, `every card shows its current price (${priced} of ${cards})`)
 
   // Bid the suggested minimum on lot 1.
   const buttons = await page.$$('main .grid > button')
