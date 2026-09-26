@@ -4,7 +4,7 @@ name: CI
 # Pages (npm run deploy:site), so no Firebase config or domains are needed here.
 on:
   push:
-    branches: [main]
+    branches: [main, spark]
   pull_request:
 
 # Read-only token: the workflow only tests; it never writes to the repo.

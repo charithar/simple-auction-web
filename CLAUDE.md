@@ -1,5 +1,7 @@
 # CLAUDE.md: Vue + Firebase auction
 
+> **`spark` branch:** the free-plan (Spark) version, tagged `v1.0-spark`, with the read-budget design below. `main` is the Blaze (paid plan) version. Fixes here are deployed with `npm run deploy:site` from this branch.
+
 A rewrite of `../auction-web` (React). Silent auction for about 20 items (the real `data/auction.yml`; earlier plans had 44) and 100 bidders, with Google sign-in. **Firebase must stay on the free Spark plan.** That means no Cloud Functions, no Cloud Storage, and no billing account. All enforcement happens in `firestore.rules`.
 
 ## Stack
