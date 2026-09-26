@@ -157,7 +157,49 @@ Refreshing and extra tabs cost a page load each (~22 reads), which is nothing at
 
 ---
 
-## 6. Development
+## 6. Two versions
+
+The app exists in two versions. Only one is live at a time.
+
+| | Blaze version | Spark version |
+|---|---|---|
+| Where | `main` branch | `spark` branch, tag `v1.0-spark` (the release as it was when frozen) |
+| Firebase plan | Blaze (paid) | Spark (free); also runs on Blaze, just with fewer reads |
+| How prices stay live | every tab listens to all items | a catalog document plus live listeners only for the cards on screen, your bids and the open item; reload cooldown; tabs share one connection |
+| Reads for a 30-minute auction (~100 bidders, ~600 bids) | ~70k, about 1 cent | ~43k–68k, which can hit the free 50k/day limit |
+| Extras | outbid toast and notification, "My bids" totals, final-minutes highlight | — |
+| Rules | as below | the same, plus read access to `catalog/items` |
+
+The live site runs `main`. CI runs the tests for pushes to both branches.
+
+### Working on either version
+
+```sh
+git switch main      # Blaze version: normal day-to-day work
+git switch spark     # Spark version: fixes only, if you'll ever go back to it
+```
+
+- **Deploy from the branch you have checked out.** `npm run deploy:site` builds whatever is in the working tree, so check `git status` first: deploying from the other branch switches the live site.
+- **Fixes that apply to both** (rules, bid logic in `src/lib/bids.js` / `auction.js`, the admin import): commit on `main`, then copy to `spark` with `git switch spark && git cherry-pick <commit>`, run `npm run test:docker`, and push. The store, the home page and the bid dialog differ a lot between the versions, so expect to redo UI fixes by hand rather than cherry-pick them.
+- Each branch's `CLAUDE.md` describes that branch's design.
+
+### Switching the live site to the other version
+
+Deploy in an order that never leaves the live site without the permissions it needs:
+
+- **To the Spark version:**
+  1. `git switch spark`.
+  2. Deploy the rules first: `npm run deploy:rules -- --project <id>`. They are a superset, so the Blaze site keeps working meanwhile.
+  3. `npm run deploy:site -- --project-name <name>`.
+  4. On the admin page, **import the auction file once**. That rebuilds the catalog document, which the Blaze version doesn't maintain.
+- **Back to the Blaze version:**
+  1. `git switch main`.
+  2. Deploy the site first: `npm run deploy:site -- --project-name <name>`.
+  3. Then the rules: `npm run deploy:rules -- --project <id>`. They drop the catalog, which the Spark site still reads.
+
+Tabs still open on the old version show "Lost connection… Reload" until they're reloaded. Switch before bidders arrive, not during the auction. The Firebase plan doesn't need to change: the Spark version runs fine on Blaze.
+
+## 7. Development
 
 Requires Node 22. The Firestore emulator needs Java 21+, or use Docker instead.
 
