@@ -12,8 +12,9 @@ const DL = join(OUT, 'downloads') // native separators: Chrome rejects mixed one
 rmSync(DL, { recursive: true, force: true })
 mkdirSync(DL, { recursive: true })
 
-// Auction file with one renamed item and one new item. Same default as `npm run seed`.
-const file = existsSync('data/auction.yml') ? 'data/auction.yml' : 'data/auction.sample.yml'
+// Auction file with one renamed item and one new item: the file that was seeded
+// (AUCTION_FILE, set by run-all), else the same default as `npm run seed`.
+const file = process.env.AUCTION_FILE ?? (existsSync('data/auction.yml') ? 'data/auction.yml' : 'data/auction.sample.yml')
 const modified = readFileSync(file, 'utf8')
   .replace(/(- id: 1\n\s+title:) (.+)/, '$1 $2 (edited)')
   + '  - id: 99\n    title: Test Monitor\n    startingPrice: 1000\n'

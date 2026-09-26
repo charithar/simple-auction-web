@@ -6,16 +6,10 @@
 // whose listeners were refused), without a reload or sign-in, and show bids
 // placed elsewhere.
 // Prereqs: emulators + `npm run seed` + `npm run smoke` + `npm run seed -- --admin-only smoke0@example.com` + `npm run dev`.
-import { initializeApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator, GoogleAuthProvider, signInWithCredential } from 'firebase/auth'
-import { getFirestore, connectFirestoreEmulator, doc, getDoc, setLogLevel } from 'firebase/firestore'
-import { launch, signIn, waitForText, clickText, checker, sleep, APP_URL } from './helpers.mjs'
-import { placeBid } from '../../src/lib/bids.js'
+import { launch, signIn, waitForText, clickText, checker, sleep, APP_URL, rival, clearKillSwitch, cardInfo } from './helpers.mjs'
 
-// Start from "off", even if an earlier failed run left it on (emulator REST, owner access).
-await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/settings/killswitch', {
-  method: 'DELETE', headers: { Authorization: 'Bearer owner' },
-})
+// Start from "off", even if an earlier failed run left it on.
+await clearKillSwitch()
 
 const { check, done } = checker()
 const browser = await launch()
@@ -27,25 +21,7 @@ const ctx = async (email) => {
   return page
 }
 const text = (page) => page.evaluate(() => document.body.innerText)
-// A rival bidding from elsewhere (Node, the app's own placeBid).
-setLogLevel('silent')
-const rivalApp = initializeApp({ apiKey: 'demo-key', projectId: 'demo-auction' }, 'rival')
-const rivalAuth = getAuth(rivalApp)
-connectAuthEmulator(rivalAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
-const rivalDb = getFirestore(rivalApp)
-connectFirestoreEmulator(rivalDb, '127.0.0.1', 8080)
-const { user: rival } = await signInWithCredential(rivalAuth,
-  GoogleAuthProvider.credential(JSON.stringify({ sub: 'smoke3', email: 'smoke3@example.com', email_verified: true })))
-async function rivalBid(itemId) {
-  const settings = (await getDoc(doc(rivalDb, 'settings', 'auction'))).data()
-  const item = (await getDoc(doc(rivalDb, 'items', itemId))).data()
-  const step = item.minIncrement ?? settings.minIncrement
-  const amount = item.currentAmount + step // above the current price, also for a first bid
-  await placeBid(rivalDb, { itemId, uid: rival.uid, amount, settings, seenBidCount: item.bidCount })
-  return amount
-}
-const card = (page, lot) => page.evaluate((lot) => [...document.querySelectorAll('main .grid > button')]
-  .find((b) => new RegExp(`Lot ${lot}(\\D|$)`).test(b.innerText))?.innerText.match(/Rs\. [\d,]+/)?.[0].replace(/\D/g, ''), lot)
+const rivalBidder = await rival() // bids from elsewhere (Node)
 const header = (page) => page.evaluate(() => document.querySelector('nav').innerText)
 
 try {
@@ -111,10 +87,10 @@ try {
     && !/reconnects by itself/.test(document.body.innerText), { polling: 250, timeout: 75_000 })
   check(true, `after resuming, the refused open page is Live again by itself in ${Math.round((Date.now() - t1) / 1000)} s`)
   // ...and then show bids placed elsewhere.
-  const amount = await rivalBid('item-004')
+  const amount = await rivalBidder.bid('item-004')
   let shown
   for (let i = 0; i < 20 && shown !== String(amount); i++) {
-    shown = await card(watcher, 4)
+    shown = (await cardInfo(watcher, 4))?.price
     if (shown !== String(amount)) await sleep(500)
   }
   check(shown === String(amount), `a bid placed elsewhere (Rs. ${amount}) reaches that page (shows ${shown})`)

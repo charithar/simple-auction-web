@@ -37,7 +37,23 @@ export function storeOffset(offset, now = Date.now()) {
   try {
     localStorage.setItem(OFFSET_KEY, JSON.stringify({ offset, at: now }))
   } catch {
-    /* storage blocked: the next quick reload assumes 0 */
+    /* storage blocked: the next quick reload falls back to the Date header */
+  }
+}
+
+// Fallback when neither the profile touch nor localStorage has an offset (e.g. a
+// new device signing in within a minute of another): the site's own HTTP Date
+// header. Second resolution, so accurate to about a second; no Firestore reads.
+export async function httpDateOffset(url, now = () => Date.now()) {
+  try {
+    const t0 = now()
+    const res = await fetch(url ?? window.location.href, { method: 'HEAD', cache: 'no-store' })
+    const t1 = now()
+    const server = Date.parse(res.headers.get('date'))
+    // The header is truncated to the second: its middle is the best estimate.
+    return Number.isFinite(server) ? server + 500 - (t0 + t1) / 2 : null
+  } catch {
+    return null
   }
 }
 
@@ -106,9 +122,9 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = { uid: fbUser.uid, name: profile.name, email: fbUser.email, photoURL: fbUser.photoURL }
       isAdmin.value = admin
       // null: not measured (profile touched under a minute ago): use the last
-      // measured offset, else assume the device clock is right.
+      // measured offset, else the site's Date header, else trust the device clock.
       if (offset != null) storeOffset(offset)
-      clockOffsetMs.value = offset ?? storedOffset() ?? 0
+      clockOffsetMs.value = offset ?? storedOffset() ?? (await httpDateOffset()) ?? 0
       error.value = ''
       retrying.value = false
     } catch (e) {

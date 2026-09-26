@@ -77,3 +77,38 @@ items:
     detail: HP 250 G7 i3 8GB. Lines on the screen
     images: []
     startingPrice: 7000
+  - id: 5
+    title: Dell OptiPlex 7050
+    subtitle: S/N SAMPLE0006
+    category: Desktop
+    condition: Used
+    specs:
+      CPU: Core i7
+      RAM: 16 GB
+      Storage: 512 GB SSD
+    detail: Dell OptiPlex 7050 i7 16GB 512GB SSD
+    images: []
+    startingPrice: 25000
+  - id: 6
+    title: Dell P2419H 24" Monitor
+    subtitle: S/N SAMPLE0007
+    category: Monitor
+    condition: Used
+    specs:
+      Size: 24 in
+      Resolution: 1920 x 1080
+    detail: Dell P2419H 24-inch Full HD monitor
+    images: []
+    startingPrice: 6000
+  - id: 7
+    title: Lenovo ThinkPad T480
+    subtitle: S/N SAMPLE0008
+    category: Laptop
+    condition: Used - good
+    specs:
+      CPU: Core i5
+      RAM: 8 GB
+      Storage: 256 GB SSD
+    detail: Lenovo ThinkPad T480 i5 8GB 256GB SSD
+    images: []
+    startingPrice: 18000

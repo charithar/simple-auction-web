@@ -123,10 +123,24 @@ items:
 - [ ] `data/auction.yml` has the real `endTime`, prices and increments, and every image loads.
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
 - [ ] Budget alert set up (setup step 7), and App Check enforced.
-- [ ] Test on a phone. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
+- [ ] Test on real phones: the **real-device check** below, on an iPhone and an Android. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
 - [ ] Do a dry run with a couple of colleagues: open bidding, place bids, try being outbid, try anti-sniping (Admin → an item's **End in 2m**, then bid in its last minute and watch the closing time move), pause, then Admin → **Reset all bids** (bidding must be paused) to put every item back to its starting price with no bids, and re-check prices. The items, closing times and bidder accounts are kept; re-import the auction file afterwards if you also want the original closing times back.
 - [ ] Decide what to post in the bidding-paused message and how you'll contact winners.
 - [ ] Tell bidders about outbid notifications: after their first bid the dialog offers "Notify me if I'm outbid…"; allowing it sends a sample notification at once. The auction tab must stay open (it can be in the background). No sample? Allow notifications for the browser in the computer's settings (Windows: Settings → System → Notifications; Mac: System Settings → Notifications) and turn off Do not disturb / Focus. iPhone Safari doesn't support them.
+
+### Real-device check (about 10 minutes)
+
+The automated browser checks run Chrome and Safari's engine (WebKit) on emulated phones, not real ones, and not the real Google sign-in or App Check. So during the dry run, with the live site, go through this on **an iPhone (Safari)** and **an Android phone (Chrome)**, with a colleague bidding from another device:
+
+- [ ] Open the link from the message bidders will get (email, WhatsApp): it opens in Safari/Chrome, not inside another app, and **Sign in with Google** works with an account on your domain.
+- [ ] The grid: every card shows a price and a countdown; scroll to the bottom; nothing is cut off and the page doesn't scroll sideways.
+- [ ] Tap an item: the dialog shows the photos, the price and the bid box without scrolling; **✕** closes it; the phone's back gesture doesn't leave the site.
+- [ ] Place a bid: the green "Bid placed" message and the **You're winning** badge.
+- [ ] Your colleague outbids you: within a couple of seconds the price changes, the badge turns to **Outbid**, a red toast appears with **Bid again**, and an open dialog says **You've been outbid**.
+- [ ] Lock the phone for a minute, unlock: the prices are current again without reloading.
+- [ ] Turn on flight mode: the offline banner shows and bidding is disabled; turn it off: back to live.
+- [ ] Admin → an item's **End in 2m**: the card gets the amber final-minutes ring; bid in its last minute: **extended** appears and the countdown jumps.
+- [ ] Android only: after a bid, allow notifications and get outbid while in another app. (iPhone Safari doesn't support them.)
 
 ## 4. On the day
 
@@ -224,13 +238,22 @@ npm run smoke -- --users 20       # end-to-end checks against the running emulat
 npm run load -- --users 100       # load test + reads and cost projection
 npm run check                     # emulator data integrity (bids vs. item state)
 
-# Browser checks (headless Chrome via puppeteer-core; needs Chrome installed, or set CHROME_PATH).
-# With emulators running, then: npm run seed, npm run smoke (creates test accounts), npm run dev
+# Browser checks: headless Chrome (puppeteer-core; needs Chrome, or set CHROME_PATH) and
+# WebKit, Safari's engine (Playwright; once: npx playwright-core install webkit).
+npm run e2e:all                   # everything, as CI runs it: starts the emulators (needs Java),
+                                  # seeds the sample file, starts the dev server, runs each script
+npm run e2e:run                   # the same with the emulators already running (e.g. emulators:docker)
+# One at a time (emulators running, then: npm run seed, npm run smoke, npm run dev):
 npm run e2e:bidder                # grid, live prices, bidding, dialog, filters, phone layout, offline
-npm run e2e:outbid                # two bidders: outbid toast, "Bid again", My-bids summary
-npm run seed -- --admin-only smoke0@example.com && npm run e2e:killswitch   # emergency stop, as admin and bidder
+npm run e2e:outbid                # two bidders: outbid toast and notification, "Bid again", My-bids summary
+npm run e2e:phone                 # the whole journey on a 390x844 touch screen
+npm run e2e:webkit                # Safari's engine on an emulated iPhone: sign-in, bid, outbid
+npm run e2e:timing                # closing: final minutes, wrong device clock, anti-sniping, "You won" (~2 min)
+npm run seed -- --admin-only smoke0@example.com && npm run e2e:killswitch   # emergency stop and recovery
 npm run seed -- --admin-only smoke0@example.com && npm run e2e:admin   # admin page; changes data, re-seed after
-# HEADFUL=1 to watch; screenshots go to test-results/browser/
+# HEADFUL=1 to watch; screenshots go to test-results/browser/. E2E_SKIP=webkit,timing skips scripts in e2e:all.
 ```
 
-`CLAUDE.md` describes the architecture, data model and conventions in detail.
+CI runs lint, unit and rules tests in one job and all browser checks (`npm run e2e:all`) in another, on every push to `main` and every pull request.
+
+Project notes for AI assistants and developers: `CLAUDE.md` (overview and working rules), `src/CLAUDE.md` (architecture and data model), `tests/CLAUDE.md` and `scripts/CLAUDE.md` (testing), `docs/decisions.md` (design decisions and review history).

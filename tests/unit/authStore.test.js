@@ -22,7 +22,7 @@ vi.mock('../../src/lib/profile.js', () => ({
   checkAdmin: (...a) => profile.checkAdmin(...a),
 }))
 
-const { useAuthStore, isInAppBrowser, storedOffset, storeOffset } = await import('../../src/stores/auth.js')
+const { useAuthStore, isInAppBrowser, storedOffset, storeOffset, httpDateOffset } = await import('../../src/stores/auth.js')
 
 // In-memory localStorage for the stored clock offset.
 const memoryStorage = () => {
@@ -93,6 +93,20 @@ describe('auth store: auth states', () => {
       expect(storedOffset()).toBeNull()
       localStorage.setItem('auction.clockOffset', '{not json')
       expect(storedOffset()).toBeNull()
+    })
+
+    it("a new device with nothing stored falls back to the site's Date header", async () => {
+      vi.stubGlobal('window', { location: { href: 'https://auction.test/' } })
+      const serverNow = Date.now() - 180_000 // this device runs 3 minutes fast
+      const fetchMock = vi.fn(async () => ({ headers: { get: (h) => (h === 'date' ? new Date(serverNow).toUTCString() : null) } }))
+      vi.stubGlobal('fetch', fetchMock)
+      profile.syncProfile.mockResolvedValue({ profile: { name: 'Ann' }, clockOffsetMs: null })
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      expect(fetchMock).toHaveBeenCalledWith('https://auction.test/', { method: 'HEAD', cache: 'no-store' })
+      expect(Math.abs(auth.clockOffsetMs - -180_000)).toBeLessThan(1_600) // the header has second resolution
+      vi.unstubAllGlobals()
     })
 
     it('blocked storage just means no stored offset', () => {
@@ -274,3 +288,19 @@ describe('isInAppBrowser', () => {
   })
 })
 
+describe('httpDateOffset', () => {
+  const headers = (date) => ({ headers: { get: (h) => (h === 'date' ? date : null) } })
+  it('estimates the offset from the Date header, taking the middle of its second', async () => {
+    const times = [10_000, 10_200]
+    vi.stubGlobal('fetch', vi.fn(async () => headers(new Date(70_000).toUTCString())))
+    expect(await httpDateOffset('https://x/', () => times.shift())).toBe(70_000 + 500 - 10_100)
+    vi.unstubAllGlobals()
+  })
+  it('null without a usable header, or when the request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => headers(null)))
+    expect(await httpDateOffset('https://x/')).toBeNull()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
+    expect(await httpDateOffset('https://x/')).toBeNull()
+    vi.unstubAllGlobals()
+  })
+})

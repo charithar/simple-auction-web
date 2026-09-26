@@ -8,6 +8,10 @@ import { existsSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import puppeteer from 'puppeteer-core'
+import { initializeApp } from 'firebase/app'
+import { getAuth, connectAuthEmulator, GoogleAuthProvider, signInWithCredential } from 'firebase/auth'
+import { getFirestore, connectFirestoreEmulator, doc, getDoc, setLogLevel } from 'firebase/firestore'
+import { placeBid } from '../../src/lib/bids.js'
 
 export const APP_URL = process.env.APP_URL ?? 'http://127.0.0.1:5173/'
 export const OUT = resolve('test-results/browser')
@@ -37,7 +41,8 @@ export const launch = ({ persistent = false } = {}) =>
   puppeteer.launch({
     executablePath: chromePath(),
     headless: !process.env.HEADFUL,
-    args: ['--no-first-run', '--no-default-browser-check'],
+    // CI (GitHub's Linux runners) can't use Chrome's sandbox.
+    args: ['--no-first-run', '--no-default-browser-check', ...(process.env.CI ? ['--no-sandbox'] : [])],
     ...(persistent ? { userDataDir: mkdtempSync(join(tmpdir(), 'auction-e2e-')) } : {}),
   })
 
@@ -109,3 +114,68 @@ export function checker() {
   }
   return { check, done }
 }
+
+// ---- emulator data, as its owner (bypasses the rules; local emulator only) ----
+
+const EMULATOR_DOCS = 'http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents'
+const OWNER = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }
+
+// Moves an item's scheduled closing time to `ms` from now.
+export async function setItemEndIn(itemId, ms) {
+  const res = await fetch(`${EMULATOR_DOCS}/items/${itemId}?updateMask.fieldPaths=endTime`, {
+    method: 'PATCH', headers: OWNER,
+    body: JSON.stringify({ fields: { endTime: { timestampValue: new Date(Date.now() + ms).toISOString() } } }),
+  })
+  if (!res.ok) throw new Error(`setItemEndIn ${itemId}: ${res.status}`)
+}
+
+// Sets the auction's anti-snipe window (settings/auction) and returns the previous value.
+export async function setAntiSnipeSeconds(seconds) {
+  const url = `${EMULATOR_DOCS}/settings/auction`
+  const before = await (await fetch(url, { headers: OWNER })).json()
+  const res = await fetch(`${url}?updateMask.fieldPaths=antiSnipeSeconds`, {
+    method: 'PATCH', headers: OWNER, body: JSON.stringify({ fields: { antiSnipeSeconds: { integerValue: String(seconds) } } }),
+  })
+  if (!res.ok) throw new Error(`setAntiSnipeSeconds: ${res.status}`)
+  return Number(before.fields.antiSnipeSeconds.integerValue)
+}
+
+// Turns the emergency stop off (settings/killswitch), e.g. after a failed run.
+export const clearKillSwitch = () => fetch(`${EMULATOR_DOCS}/settings/killswitch`, { method: 'DELETE', headers: OWNER })
+
+// ---- a rival bidder in Node, bidding through the app's own placeBid ----
+
+let rivals = 0
+export async function rival(email = 'smoke3@example.com') {
+  setLogLevel('silent')
+  const app = initializeApp({ apiKey: 'demo-key', projectId: 'demo-auction' }, `rival-${++rivals}`)
+  const auth = getAuth(app)
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  const db = getFirestore(app)
+  connectFirestoreEmulator(db, '127.0.0.1', 8080)
+  const sub = email.split('@')[0]
+  const { user } = await signInWithCredential(auth, GoogleAuthProvider.credential(JSON.stringify({ sub, email, email_verified: true })))
+  return {
+    uid: user.uid,
+    // Bids one minimum step above the current price (also for a first bid); returns the amount.
+    async bid(itemId) {
+      const settings = (await getDoc(doc(db, 'settings', 'auction'))).data()
+      const item = (await getDoc(doc(db, 'items', itemId))).data()
+      const amount = item.currentAmount + (item.minIncrement ?? settings.minIncrement)
+      await placeBid(db, { itemId, uid: user.uid, amount, settings, seenBidCount: item.bidCount })
+      return amount
+    },
+  }
+}
+
+// The card for lot `n`: its text, price (digits only) and ring colour.
+export const cardInfo = (page, n) => page.evaluate((n) => {
+  const b = [...document.querySelectorAll('main .grid > button')].find((x) => new RegExp(`Lot ${n}(\\D|$)`).test(x.innerText))
+  if (!b) return null
+  return {
+    text: b.innerText.replace(/\s+/g, ' '),
+    price: b.innerText.match(/Rs\. [\d,]+/)?.[0].replace(/\D/g, ''),
+    ring: b.className.match(/ring-(amber|emerald|rose|slate)-\d+/)?.[0],
+    pulse: !!b.querySelector('.animate-pulse'),
+  }
+}, n)
