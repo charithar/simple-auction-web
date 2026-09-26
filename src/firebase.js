@@ -8,12 +8,17 @@ import { ALLOWED_DOMAINS } from './lib/access.js'
 // EVERY VITE_* variable in .env.local, shipping values meant for local use only.
 export const useEmulators = import.meta.env.VITE_USE_EMULATORS === 'true'
 
-const app = initializeApp({
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-key',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: useEmulators ? 'demo-auction' : import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-})
+// With the emulators, fixed demo values: the same everywhere (CI has no .env.local)
+// and nothing that points at the real project. signInWithPopup refuses to run
+// without an authDomain, so one is needed even though the emulator handles sign-in.
+const app = initializeApp(useEmulators
+  ? { apiKey: 'demo-key', authDomain: 'demo-auction.firebaseapp.com', projectId: 'demo-auction' }
+  : {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    })
 
 // Optional App Check (reCAPTCHA Enterprise, now "Fraud Defense"; Firebase no longer
 // offers plain reCAPTCHA v3 for new apps): lets Firestore reject requests that don't come

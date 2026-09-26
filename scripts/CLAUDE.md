@@ -27,6 +27,12 @@ Headless Chrome via puppeteer-core (the local Chrome; `CHROME_PATH` to override)
 
 ## Gotchas (all learned the hard way)
 
+- **Every script must end with `process.exit(done() ? 1 : 0)`**: `done()` only returns the failure count; without the explicit exit code, failed checks look like a pass to `run-all` and CI.
+- CI has no `.env.local`: emulator mode must not depend on real config (see `src/CLAUDE.md`). Before the fix, sign-in never opened its popup in CI and `signIn()` waited forever; it now fails after 20 s with the page's text. To reproduce CI locally, start the dev server with the `VITE_FIREBASE_*`, `VITE_ALLOWED_DOMAINS` and `VITE_APPCHECK_SITE_KEY` variables set to empty strings (they override `.env.local`).
+- `run-all.mjs` prints elapsed times, stops a script after 8 minutes (counted as failed, so a hang names itself), and writes the dev server's output to `test-results/browser/dev-server.log`; CI uploads that folder on failure or timeout. The whole suite takes about 3.5 minutes locally.
+- Don't hard-code item counts: `run-all` seeds the 8-item sample, a developer's real file has more. Compare with what the page shows.
+- Two pages tick their countdowns independently (up to a second apart): after waiting for one page to reach a state, wait for the other too.
+
 - Wait with `{ polling: 250 }`, never animation-frame polling: background pages get no frames.
 - `smoke -- --users N` creates `smoke0..smoke(N-1)`; the picker lists only accounts that exist.
 - Downloads (CSV exports) need **trusted clicks** (`elementHandle.click()`): Chrome blocks a second download started by a script's `element.click()`. Buttons disabled for a reason (e.g. no bids) simply do nothing.

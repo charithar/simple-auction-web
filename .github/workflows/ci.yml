@@ -40,7 +40,7 @@ jobs:
   # committed sample auction file. Same as `npm run e2e:all` locally.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -55,7 +55,8 @@ jobs:
       - run: npx playwright-core install --with-deps webkit
       # Local emulators only (demo- project id); never touches a real Firebase project.
       - run: npm run e2e:all
-      - if: failure()
+      # Also after a timeout (a cancelled run): screenshots and the dev server's log.
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: browser-screenshots

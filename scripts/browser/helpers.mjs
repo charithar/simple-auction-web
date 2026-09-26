@@ -66,7 +66,12 @@ export async function signIn(browser, page, email) {
   await waitForText(page, 'Sign in with Google')
   const popupP = new Promise((res) => browser.once('targetcreated', async (t) => res(await t.page())))
   await clickText(page, 'main button', 'Sign in with Google')
-  const popup = await popupP
+  // Fail instead of hanging when no popup opens (e.g. the app refused to start sign-in).
+  const popup = await Promise.race([popupP, sleep(20_000).then(() => null)])
+  if (!popup) {
+    const text = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').slice(0, 300))
+    throw new Error(`No sign-in popup opened within 20 s. Page: ${text}`)
+  }
   await popup.waitForSelector('li.js-reuse-account', { timeout: 15_000 })
   // The list renders before its click handlers are bound: retry until the popup closes.
   for (let attempt = 0; attempt < 3 && !popup.isClosed(); attempt++) {
@@ -104,6 +109,7 @@ export function checker() {
     log(`${ok ? '✔' : '✘'} ${msg}`)
     if (!ok) failures++
   }
+  // Returns the number of failures: end every script with process.exit(done() ? 1 : 0).
   const done = (errors = []) => {
     if (errors.length) {
       log(`console errors (${errors.length}):\n  ${errors.slice(0, 10).join('\n  ')}`)

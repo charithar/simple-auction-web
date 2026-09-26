@@ -68,7 +68,8 @@ try {
   await admin.reload({ waitUntil: 'networkidle2' })
   await waitForText(admin, 'On: only admins have access', 15_000)
   const adminRows = await admin.$$eval('tbody > tr', (r) => r.length)
-  check(adminRows >= 20, `the admin still sees the items while it is on (${adminRows} rows)`)
+  const items = await watcher.$$eval('main .grid > button', (b) => b.length) // the watcher's grid, before the stop
+  check(adminRows > 0 && adminRows === items, `the admin still sees every item while it is on (${adminRows} rows)`)
   await clickText(admin, 'button', 'Resume access')
   await clickText(admin, 'button', 'Let bidders back in?')
   await waitForText(admin, 'Off', 10_000)
@@ -97,5 +98,6 @@ try {
 } finally {
   await browser.close()
 }
-done()
-process.exit(0) // the rival's Firestore client would keep Node alive
+// Exit explicitly: the rival's Firestore client would keep Node alive, and the
+// exit code is what run-all and CI see.
+process.exit(done() ? 1 : 0)

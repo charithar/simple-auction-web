@@ -40,6 +40,8 @@ Three rounds of three parallel reviewers (rules/logic, load/concurrency, real-br
 2. **Round 2 (Spark)**: ended items looped on the "Open" tab; bids reset between preview and apply; items deleted between preview and apply stayed in the catalog; neutral wording for the same bidder's other device; sub-second pauses; "closed" vs "paused" wording.
 3. **Round 3 (Blaze)**: coverage raised from 70% to 100% (15 new test files); clock offset lost on a quick reload; false outbid alerts after a reset and after switching accounts; header stuck on "Loading…"; the emergency stop added.
 
+The first CI run of the browser job hung for 30 minutes: CI has no `.env.local`, so in emulator mode `authDomain` was empty, `signInWithPopup` refused to start and the sign-in helper waited forever for a popup. Fixed with fixed demo config in emulator mode, a 20 s popup limit, per-script time limits in `run-all`, and honest exit codes (five scripts had reported success regardless of failed checks).
+
 Other fixes found while testing: the first-bid "Outbid" flash (own bid shown until the listener confirms); a stale green "Bid placed" after being outbid; a late dialog `close` event closing a newly opened item; resets failing above 500 bids (batch limit); a new device with no clock offset trusting its wrong clock (HTTP Date header fallback).
 
 Security audit (OWASP-oriented) at the start: env inlining that could leak a debug token, write-quota abuse via profile updates, image URL schemes, the `?item=` parameter, Docker context leaks, CSP/COOP/HSTS; all fixed or configured.

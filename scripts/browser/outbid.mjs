@@ -123,4 +123,4 @@ try {
 } finally {
   await browser.close()
 }
-done()
+process.exit(done() ? 1 : 0) // the exit code is what run-all and CI see

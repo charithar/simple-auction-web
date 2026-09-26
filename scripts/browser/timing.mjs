@@ -102,6 +102,9 @@ try {
 
   // After the extended close: A won, B didn't.
   await waitForText(A, 'You won', 90_000)
+  // Each page's countdown ticks on its own: B's can be up to a second behind A's.
+  await B.waitForFunction(() => /Not won/.test([...document.querySelectorAll('main .grid > button')]
+    .find((b) => /Lot 1(\D|$)/.test(b.innerText))?.innerText ?? ''), { polling: 250, timeout: 5_000 }).catch(() => {})
   const [a3, b3] = [await cardInfo(A, 1), await cardInfo(B, 1)]
   check(/You won/.test(a3.text) && /Not won/.test(b3.text), 'after the extended close: "You won" for A, "Not won" for B')
   const summary = await A.evaluate(() => document.querySelector('main').innerText.match(/You won [^\n]*/)?.[0])
@@ -110,4 +113,4 @@ try {
   if (antiSnipeBefore != null) await setAntiSnipeSeconds(antiSnipeBefore)
   await browser.close()
 }
-done()
+process.exit(done() ? 1 : 0) // the exit code is what run-all and CI see

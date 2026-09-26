@@ -58,5 +58,6 @@ try {
 } finally {
   await browser.close()
 }
-done()
-process.exit(0) // the rival's Firestore client would keep Node alive
+// Exit explicitly: the rival's Firestore client would keep Node alive, and the
+// exit code is what run-all and CI see.
+process.exit(done() ? 1 : 0)
