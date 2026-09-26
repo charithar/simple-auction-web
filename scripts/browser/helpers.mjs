@@ -96,7 +96,9 @@ export function collectConsole(page) {
     if (!['error', 'warn'].includes(m.type())) return
     const t = m.text()
     if (/ERR_INTERNET_DISCONNECTED|transport errored|status of 404/.test(t)) return
-    errors.push(`${m.type()}: ${t}`)
+    // "Failed to load resource" doesn't name the resource: add its URL (query dropped: tokens).
+    const url = /Failed to load resource/.test(t) ? ` [${(m.location()?.url ?? '?').split('?')[0]}]` : ''
+    errors.push(`${m.type()}: ${t}${url}`)
   })
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
   return errors
