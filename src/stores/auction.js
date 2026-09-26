@@ -10,12 +10,24 @@ import { useAuthStore } from './auth.js'
 export const useAuctionStore = defineStore('auction', () => {
   const auth = useAuthStore()
 
-  const items = shallowRef([]) // item docs in lot order
+  const docs = shallowRef([]) // item docs in lot order, as the listener delivers them
   const settings = ref(null)
   const myBidItemIds = shallowRef(new Set())
   const loaded = ref(false)
   const error = ref('')
 
+  // Own bids that succeeded but aren't in the item listener yet: id -> { bidCount, amount, uid }.
+  // The "my bids" listener (or noteOwnBid) can mark the item as bid on before the
+  // item update arrives, which would briefly show "Outbid" (bid on, not leading).
+  // Until the listener reaches that bid count, show the item as the bidder's.
+  const ownPending = shallowRef(new Map())
+  const withOwnBid = (it) => {
+    const p = ownPending.value.get(it.id)
+    return p && it.bidCount < p.bidCount
+      ? { ...it, currentAmount: p.amount, bidCount: p.bidCount, highBidderUid: p.uid }
+      : it
+  }
+  const items = computed(() => docs.value.map(withOwnBid))
   const itemsById = computed(() => new Map(items.value.map((it) => [it.id, it])))
 
   const onError = (e) => {
@@ -34,7 +46,8 @@ export const useAuctionStore = defineStore('auction', () => {
     unsubs = [
       subscribeSettings(db, (s) => (settings.value = s), onError),
       subscribeItems(db, (list) => {
-        items.value = list
+        docs.value = list
+        dropConfirmedOwnBids(list)
         loaded.value = true
         error.value = ''
       }, onError),
@@ -49,7 +62,8 @@ export const useAuctionStore = defineStore('auction', () => {
 
   function reset() {
     detach()
-    items.value = []
+    docs.value = []
+    ownPending.value = new Map()
     settings.value = null
     myBidItemIds.value = new Set()
     loaded.value = false
@@ -67,9 +81,19 @@ export const useAuctionStore = defineStore('auction', () => {
     )
   }
 
-  // Optimistically mark an item as bid on (the listener confirms shortly after).
-  function noteOwnBid(itemId) {
+  // After a successful bid ({ bidCount, amount } from placeBid): mark the item as
+  // bid on and as led by this bidder until the listeners confirm.
+  function noteOwnBid(itemId, bid) {
     if (!myBidItemIds.value.has(itemId)) myBidItemIds.value = new Set([...myBidItemIds.value, itemId])
+    if (bid) ownPending.value = new Map(ownPending.value).set(itemId, { ...bid, uid: auth.user.uid })
+  }
+
+  // The item listener has caught up (or overtaken: a rival bid since): the real doc wins.
+  function dropConfirmedOwnBids(list) {
+    if (!ownPending.value.size) return
+    const next = new Map(ownPending.value)
+    for (const it of list) if (next.has(it.id) && it.bidCount >= next.get(it.id).bidCount) next.delete(it.id)
+    if (next.size !== ownPending.value.size) ownPending.value = next
   }
 
   // For the header indicator: 'live' | 'connecting'.

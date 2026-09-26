@@ -99,7 +99,7 @@ async function submit() {
   message.value = null
   const bidAmount = amount.value
   try {
-    await placeBid(db, {
+    const placed = await placeBid(db, {
       itemId: item.value.id,
       uid: auth.user.uid,
       amount: bidAmount,
@@ -108,7 +108,7 @@ async function submit() {
       now: Date.now() + auth.clockOffsetMs,
       seenBidCount: item.value.bidCount,
     })
-    auction.noteOwnBid(item.value.id)
+    auction.noteOwnBid(item.value.id, placed)
     message.value = { kind: 'success', text: `Bid placed: you're the highest bidder at ${money(bidAmount)}.` }
     canAskNotify.value = notificationsSupported() && Notification.permission === 'default'
   } catch (e) {
