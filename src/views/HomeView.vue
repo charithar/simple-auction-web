@@ -81,6 +81,9 @@ const filters = computed(() => [
   <div v-if="!auth.ready" class="py-16 text-center text-slate-500">Loading…</div>
 
   <!-- Items are readable only when signed in (keeps outsiders from running up reads). -->
+  <!-- Signed in with Google but refused (emergency stop): the auth store retries. -->
+  <div v-else-if="auth.retrying" class="py-16 text-center text-slate-500" role="status">Reconnecting…</div>
+
   <section v-else-if="!auth.signedIn" class="mx-auto max-w-md py-16 text-center">
     <h1 class="text-2xl font-semibold">Welcome to the auction</h1>
     <p class="mt-2 text-slate-600">Sign in with your {{ allowedDomainsText() }} Google account to see the items and place bids.</p>

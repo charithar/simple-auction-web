@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef, computed, watch } from 'vue'
 import { db } from '../firebase.js'
 import { subscribeItems, subscribeSettings, subscribeMyBidItems } from '../lib/items.js'
+import { retryDelay } from '../lib/retry.js'
 import { useAuthStore } from './auth.js'
 
 // While signed in, three live listeners: settings, all items (lot order) and the
@@ -15,6 +16,7 @@ export const useAuctionStore = defineStore('auction', () => {
   const myBidItemIds = shallowRef(new Set())
   const loaded = ref(false)
   const error = ref('')
+  const reconnecting = ref(false)
 
   // Own bids that succeeded but aren't in the item listener yet: id -> { bidCount, amount, uid }.
   // The "my bids" listener (or noteOwnBid) can mark the item as bid on before the
@@ -30,26 +32,52 @@ export const useAuctionStore = defineStore('auction', () => {
   const items = computed(() => docs.value.map(withOwnBid))
   const itemsById = computed(() => new Map(items.value.map((it) => [it.id, it])))
 
+  // A failed listener stops for good (the SDK retries network trouble itself, so
+  // what reaches here is a refusal: the emergency stop, App Check, quota). Drop
+  // all three listeners and attach them again on the retry schedule, so open
+  // pages recover by themselves once the cause is gone.
   const onError = (e) => {
     console.error('Firestore listener failed', e)
     error.value = {
-      'resource-exhausted': 'The auction is temporarily over capacity. Please try again later.',
+      'resource-exhausted': 'The auction is temporarily over capacity. Reconnecting automatically…',
       // The rules refuse this user everything: the admin's emergency stop is on.
-      'permission-denied': 'The auction is temporarily unavailable. Try reloading in a few minutes.',
-    }[e.code] ?? 'Lost connection to the auction. Reload the page to retry.'
+      'permission-denied': 'The auction is temporarily unavailable. This page reconnects by itself.',
+    }[e.code] ?? 'Lost connection to the auction. Reconnecting automatically…'
+    scheduleReconnect()
   }
 
   let unsubs = []
+  let currentUid = null
+  let retryTimer = null
+  let attempts = 0
+
+  function scheduleReconnect() {
+    if (retryTimer) return // already scheduled (three listeners can fail together)
+    detach()
+    reconnecting.value = true
+    const uid = currentUid
+    retryTimer = setTimeout(() => attach(uid), retryDelay(attempts++))
+  }
 
   function attach(uid) {
     detach()
+    // A pending reconnect is either this call, or for an account that's gone.
+    clearTimeout(retryTimer)
+    retryTimer = null
+    currentUid = uid
     unsubs = [
       subscribeSettings(db, (s) => (settings.value = s), onError),
-      subscribeItems(db, (list) => {
+      subscribeItems(db, (list, fromCache) => {
         docs.value = list
         dropConfirmedOwnBids(list)
         loaded.value = true
-        error.value = ''
+        // Recovered only with fresh server data: after a reconnect the local
+        // cache answers first, before the server can refuse again.
+        if (!fromCache) {
+          error.value = ''
+          reconnecting.value = false
+          attempts = 0
+        }
       }, onError),
       subscribeMyBidItems(db, uid, (ids) => (myBidItemIds.value = ids), onError),
     ]
@@ -62,6 +90,11 @@ export const useAuctionStore = defineStore('auction', () => {
 
   function reset() {
     detach()
+    clearTimeout(retryTimer)
+    retryTimer = null
+    currentUid = null
+    attempts = 0
+    reconnecting.value = false
     docs.value = []
     ownPending.value = new Map()
     settings.value = null
@@ -96,8 +129,8 @@ export const useAuctionStore = defineStore('auction', () => {
     if (next.size !== ownPending.value.size) ownPending.value = next
   }
 
-  // For the header indicator: 'live' | 'connecting'.
-  const connection = computed(() => (loaded.value ? 'live' : 'connecting'))
+  // For the header indicator: 'live' | 'connecting' | 'reconnecting'.
+  const connection = computed(() => (reconnecting.value ? 'reconnecting' : loaded.value ? 'live' : 'connecting'))
 
   return { items, itemsById, settings, myBidItemIds, loaded, error, connection, init, noteOwnBid }
 })

@@ -4,6 +4,7 @@ import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from 'fireb
 import { auth, db, googleProvider, useEmulators } from '../firebase.js'
 import { emailAllowed, allowedDomainsText } from '../lib/access.js'
 import { syncProfile, checkAdmin } from '../lib/profile.js'
+import { retryDelay } from '../lib/retry.js'
 
 const signInMessages = {
   'auth/popup-blocked': 'Your browser blocked the sign-in popup. Allow popups for this site and try again.',
@@ -47,6 +48,9 @@ export const useAuthStore = defineStore('auth', () => {
   const ready = ref(false) // first auth state (incl. profile + admin check) resolved
   const busy = ref(false)
   const error = ref('')
+  // Signed in with Google, but the rules refuse everything (emergency stop on):
+  // the profile load is retried on a schedule instead of signing the user out.
+  const retrying = ref(false)
 
   const signedIn = computed(() => user.value !== null)
 
@@ -54,12 +58,16 @@ export const useAuthStore = defineStore('auth', () => {
   const readyPromise = new Promise((r) => (resolveReady = r))
   let started = false
   let generation = 0 // ignores results from a previous auth state
+  let retryTimer = null
 
   function init() {
     if (started) return
     started = true
     onAuthStateChanged(auth, async (fbUser) => {
       const gen = ++generation
+      clearTimeout(retryTimer)
+      retryTimer = null
+      retrying.value = false
       if (!fbUser) {
         user.value = null
         isAdmin.value = false
@@ -80,42 +88,52 @@ export const useAuthStore = defineStore('auth', () => {
         markReady()
         return
       }
-      // Profile sync (also measures the clock offset) + admin check on every page
-      // load: 2 reads and at most 1 write. Only the UI relies on the admin flag;
-      // the security rules check registration/admin themselves.
-      busy.value = true
-      try {
-        const [{ profile, clockOffsetMs: offset }, admin] = await Promise.all([
-          syncProfile(db, fbUser),
-          checkAdmin(db, fbUser.uid),
-        ])
-        if (gen !== generation) return
-        user.value = { uid: fbUser.uid, name: profile.name, email: fbUser.email, photoURL: fbUser.photoURL }
-        isAdmin.value = admin
-        // null: not measured (profile touched under a minute ago): use the last
-        // measured offset, else assume the device clock is right.
-        if (offset != null) storeOffset(offset)
-        clockOffsetMs.value = offset ?? storedOffset() ?? 0
-        error.value = ''
-      } catch (e) {
-        if (gen !== generation) return
-        console.error('Profile sync failed', e)
-        // permission-denied here means the rules refuse this user everything,
-        // i.e. the admin's emergency stop (settings/killswitch) is on.
-        error.value = e.code === 'permission-denied'
-          ? 'The auction is temporarily unavailable. Please try again later.'
-          : 'Your profile could not be loaded. Please sign in again.'
-        user.value = null
-        isAdmin.value = false
+      await loadProfile(fbUser, gen, 0)
+    })
+  }
+
+  // Profile sync (also measures the clock offset) + admin check on every page
+  // load: 2 reads and at most 1 write. Only the UI relies on the admin flag;
+  // the security rules check registration/admin themselves.
+  async function loadProfile(fbUser, gen, attempt) {
+    busy.value = true
+    try {
+      const [{ profile, clockOffsetMs: offset }, admin] = await Promise.all([
+        syncProfile(db, fbUser),
+        checkAdmin(db, fbUser.uid),
+      ])
+      if (gen !== generation) return
+      user.value = { uid: fbUser.uid, name: profile.name, email: fbUser.email, photoURL: fbUser.photoURL }
+      isAdmin.value = admin
+      // null: not measured (profile touched under a minute ago): use the last
+      // measured offset, else assume the device clock is right.
+      if (offset != null) storeOffset(offset)
+      clockOffsetMs.value = offset ?? storedOffset() ?? 0
+      error.value = ''
+      retrying.value = false
+    } catch (e) {
+      if (gen !== generation) return
+      console.error('Profile sync failed', e)
+      user.value = null
+      isAdmin.value = false
+      if (e.code === 'permission-denied') {
+        // The rules refuse this user everything: the admin's emergency stop is on.
+        // Keep the Google session and try again, so the page comes back by itself.
+        error.value = 'The auction is temporarily unavailable. This page reconnects by itself.'
+        retrying.value = true
+        // A new auth state (sign-out, another account) cancels this timer.
+        retryTimer = setTimeout(() => loadProfile(fbUser, gen, attempt + 1), retryDelay(attempt))
+      } else {
+        error.value = 'Your profile could not be loaded. Please sign in again.'
         // Keep Firebase and app state consistent so "Sign in" really retries.
         fbSignOut(auth).catch(() => {})
-      } finally {
-        if (gen === generation) {
-          busy.value = false
-          markReady()
-        }
       }
-    })
+    } finally {
+      if (gen === generation) {
+        busy.value = false
+        markReady()
+      }
+    }
   }
 
   function markReady() {
@@ -141,5 +159,5 @@ export const useAuthStore = defineStore('auth', () => {
 
   const signOut = () => fbSignOut(auth)
 
-  return { user, isAdmin, clockOffsetMs, ready, busy, error, signedIn, init, whenReady, signIn, signOut }
+  return { user, isAdmin, clockOffsetMs, ready, busy, error, retrying, signedIn, init, whenReady, signIn, signOut }
 })

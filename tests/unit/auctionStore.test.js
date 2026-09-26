@@ -61,7 +61,7 @@ describe('auction store', () => {
     expect(auction.loaded).toBe(false)
   })
 
-  it('a failed listener shows a reload message', async () => {
+  it('a failed listener says it is reconnecting', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { subscribeItems } = await import('../../src/lib/items.js')
     const auth = useAuthStore()
@@ -71,7 +71,8 @@ describe('auction store', () => {
     await nextTick()
     const onError = subscribeItems.mock.calls.at(-1)[2]
     onError({ code: 'unavailable' })
-    expect(auction.error).toMatch(/Reload the page/)
+    expect(auction.error).toBe('Lost connection to the auction. Reconnecting automatically…')
+    expect(auction.connection).toBe('reconnecting')
   })
 
   it('noteOwnBid marks an item as bid on before the listener confirms', () => {

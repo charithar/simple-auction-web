@@ -128,13 +128,39 @@ describe('auth store: auth states', () => {
     expect(auth.error).toBe('Sign-in is not set up for this site yet (no allowed domains configured).')
   })
 
-  it('a refused profile sync (emergency stop on) says the auction is unavailable', async () => {
-    profile.syncProfile.mockRejectedValue(Object.assign(new Error('denied'), { code: 'permission-denied' }))
-    const auth = useAuthStore()
-    auth.init()
-    await fb.onAuthChanged(fbUser())
-    expect(auth.error).toBe('The auction is temporarily unavailable. Please try again later.')
-    expect(auth).toMatchObject({ signedIn: false, busy: false })
+  describe('refused profile sync (emergency stop on)', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+    const denied = () => Object.assign(new Error('denied'), { code: 'permission-denied' })
+
+    it('keeps the Google session, says it reconnects, and retries until access is back', async () => {
+      profile.syncProfile.mockRejectedValue(denied())
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      expect(auth.error).toBe('The auction is temporarily unavailable. This page reconnects by itself.')
+      expect(auth).toMatchObject({ signedIn: false, retrying: true, busy: false, ready: true })
+      expect(fb.signOut).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5_000) // still refused
+      expect(profile.syncProfile).toHaveBeenCalledTimes(2)
+      profile.syncProfile.mockResolvedValue({ profile: { name: 'Ann' }, clockOffsetMs: 7 })
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(profile.syncProfile).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1) // 15 s after the second try: access is back
+      expect(auth).toMatchObject({ signedIn: true, retrying: false, error: '', clockOffsetMs: 7 })
+    })
+
+    it('signing out (or another account) stops the retries', async () => {
+      profile.syncProfile.mockRejectedValue(denied())
+      const auth = useAuthStore()
+      auth.init()
+      await fb.onAuthChanged(fbUser())
+      await fb.onAuthChanged(null)
+      expect(auth.retrying).toBe(false)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(profile.syncProfile).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('a failed profile sync signs out and asks to sign in again', async () => {

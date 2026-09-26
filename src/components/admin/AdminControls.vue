@@ -112,7 +112,8 @@ async function save(patch) {
       </div>
       <p class="mt-1 text-xs text-slate-500">
         For abuse (e.g. a script running up the read bill): nobody but admins can read or bid until you resume.
-        Bidders see "temporarily unavailable" and must reload afterwards. Pausing bidding is enough for everything else.
+        Bidders see "temporarily unavailable"; their pages reconnect by themselves within a minute of resuming.
+        Pausing bidding is enough for everything else.
       </p>
     </div>
     <p v-if="error" class="mt-2 text-sm text-rose-700">{{ error }}</p>

@@ -134,9 +134,9 @@ items:
 3. Glance at Firebase console → **Firestore → Usage** now and then. See the cost section below for what's normal.
 4. **Problems** (wrong price, item withdrawn): *Pause bidding* with a message, fix the item (set its closing time, or reset its bids while paused), then *Open bidding*. To withdraw an item, pause first: setting its closing time in the past doesn't close it if its last bid was within the anti-snipe window (2 minutes by default).
 5. **Abuse** (someone scripting reads or bids, reads climbing unusually fast, or a budget/reads alert):
-   - **Stop it now:** Admin → **Emergency stop → Block all bidder access** (confirm). The rules then refuse every request from anyone but admins: no reads, no bids, no sign-ins. Pages already open keep their last prices but can't bid, and bidders see "The auction is temporarily unavailable". It works even without the admin page: create a document `settings/killswitch` (any content) in the Firestore console; delete it to resume.
+   - **Stop it now:** Admin → **Emergency stop → Block all bidder access** (confirm). The rules then refuse every request from anyone but admins: no reads, no bids, no sign-ins. Open pages lose their live prices and show "The auction is temporarily unavailable. This page reconnects by itself." It works even without the admin page: create a document `settings/killswitch` (any content) in the Firestore console; delete it to resume.
    - **Find and block the account:** Firebase console → **Firestore → Usage** and **Authentication → Users** (recent sign-ins) → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour** (the rules don't check whether an account is disabled), so keep the emergency stop on for that hour, or *Pause bidding* if only bids are affected.
-   - **Resume:** **Resume access**; bidders reload the page (and sign in again if they reloaded while it was on).
+   - **Resume:** **Resume access**. Open pages reconnect by themselves (they retry after 5 s, 15 s, then every minute), so bidders don't need to reload or sign in again.
 6. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
 7. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
 

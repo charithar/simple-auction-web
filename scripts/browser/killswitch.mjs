@@ -2,7 +2,7 @@
 // Emergency stop (settings/killswitch) in headless Chrome: the admin turns it on;
 // a bid from an already-open bidder page is refused with "temporarily
 // unavailable"; a reload shows no items; the admin still sees everything; after
-// "Resume access" the bidder signs in again and sees prices.
+// "Resume access" the same page recovers by itself, without a reload or sign-in.
 // Prereqs: emulators + `npm run seed` + `npm run smoke` + `npm run seed -- --admin-only smoke0@example.com` + `npm run dev`.
 import { launch, signIn, waitForText, clickText, checker, APP_URL } from './helpers.mjs'
 
@@ -46,7 +46,8 @@ try {
   await bidder.reload({ waitUntil: 'networkidle2' })
   await waitForText(bidder, 'temporarily unavailable', 20_000)
   const afterReload = await text(bidder)
-  check(!/Starting price|\d+ bids?/.test(afterReload), 'a reload while it is on shows no items, just "temporarily unavailable"')
+  check(!/Starting price|\d+ bids?/.test(afterReload) && /Reconnecting…/.test(afterReload) && !/Sign in with Google/.test(afterReload),
+    'a reload while it is on shows "temporarily unavailable … reconnects by itself", no items, and stays signed in')
 
   await admin.reload({ waitUntil: 'networkidle2' })
   await waitForText(admin, 'On: only admins have access', 15_000)
@@ -56,11 +57,12 @@ try {
   await clickText(admin, 'button', 'Let bidders back in?')
   await waitForText(admin, 'Off', 10_000)
 
-  await signIn(browser, bidder, 'smoke1@example.com').catch(() => {}) // signed out by the refused profile sync
-  await bidder.goto(APP_URL, { waitUntil: 'networkidle2' })
-  await waitForText(bidder, 'Lot 0', 20_000)
+  // No reload, no sign-in: the page retries (5 s, 15 s, then every 60 s) and comes back by itself.
+  const t0 = Date.now()
+  await waitForText(bidder, 'Lot 0', 75_000)
   const priced = await bidder.$$eval('main .grid > button', (bs) => bs.filter((b) => /Starting price|\d+ bids?/.test(b.innerText)).length)
-  check(priced > 0, `after resuming, the bidder sees prices again (${priced} cards)`)
+  const banner = /temporarily unavailable/.test(await text(bidder))
+  check(priced > 0 && !banner, `after resuming, the same page recovers by itself in ${Math.round((Date.now() - t0) / 1000)} s (${priced} cards, banner gone)`)
 } finally {
   await browser.close()
 }

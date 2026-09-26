@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -47,16 +47,79 @@ describe('auction store edges', () => {
     expect(auction.settings).toBeNull()
   })
 
-  it('a quota error says "over capacity", not "reload"', async () => {
+  it('a quota error says "over capacity"', async () => {
     const auction = await signedIn()
     callback('settings', 2)({ code: 'resource-exhausted' })
-    expect(auction.error).toBe('The auction is temporarily over capacity. Please try again later.')
+    expect(auction.error).toBe('The auction is temporarily over capacity. Reconnecting automatically…')
   })
 
   it('a refusal (emergency stop on) says the auction is temporarily unavailable', async () => {
     const auction = await signedIn()
     callback('items', 2)({ code: 'permission-denied' })
-    expect(auction.error).toBe('The auction is temporarily unavailable. Try reloading in a few minutes.')
+    expect(auction.error).toBe('The auction is temporarily unavailable. This page reconnects by itself.')
+  })
+
+  describe('reconnecting after a refused listener', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+    const attaches = () => calls.filter((c) => c.name === 'items').length
+
+    it('drops the listeners and attaches them again after 5 s, 15 s, then every 60 s', async () => {
+      const auction = await signedIn()
+      expect(attaches()).toBe(1)
+      for (const [delay, n] of [[5_000, 2], [15_000, 3], [60_000, 4], [60_000, 5]]) {
+        callback('items', 2)({ code: 'permission-denied' }) // refused again (emergency stop still on)
+        expect(auction.connection).toBe('reconnecting')
+        vi.advanceTimersByTime(delay - 1)
+        expect(attaches()).toBe(n - 1)
+        vi.advanceTimersByTime(1)
+        expect(attaches()).toBe(n)
+      }
+    })
+
+    it('three listeners failing together schedule one reconnect', async () => {
+      await signedIn()
+      callback('settings', 2)({ code: 'permission-denied' })
+      callback('items', 2)({ code: 'permission-denied' })
+      callback('mine', 3)({ code: 'permission-denied' })
+      vi.advanceTimersByTime(5_000)
+      expect(attaches()).toBe(2)
+    })
+
+    it('recovers only with server data: a cached snapshot keeps it reconnecting', async () => {
+      const auction = await signedIn()
+      callback('items', 2)({ code: 'permission-denied' })
+      vi.advanceTimersByTime(5_000)
+      callback('items', 1)([{ id: 'item-001', order: 1 }], true) // from the local cache
+      expect(auction.connection).toBe('reconnecting')
+      expect(auction.error).not.toBe('')
+      callback('items', 1)([{ id: 'item-001', order: 1 }], false) // from the server: back
+      expect(auction.connection).toBe('live')
+      expect(auction.error).toBe('')
+      // ...and the schedule starts over at 5 s.
+      callback('items', 2)({ code: 'permission-denied' })
+      vi.advanceTimersByTime(5_000)
+      expect(attaches()).toBe(3)
+    })
+
+    it("switching accounts cancels a pending reconnect: the old account's listeners never come back", async () => {
+      await signedIn()
+      callback('items', 2)({ code: 'permission-denied' })
+      useAuthStore().user = { uid: 'u2' }
+      await nextTick()
+      vi.advanceTimersByTime(120_000)
+      expect(calls.filter((c) => c.name === 'mine').map((c) => c.args[1])).toEqual(['u1', 'u2'])
+    })
+
+    it('signing out cancels a pending reconnect', async () => {
+      const auction = await signedIn()
+      callback('items', 2)({ code: 'permission-denied' })
+      useAuthStore().user = null
+      await nextTick()
+      vi.advanceTimersByTime(120_000)
+      expect(attaches()).toBe(1)
+      expect(auction.connection).toBe('connecting')
+    })
   })
 
   it('new item data clears an earlier listener error', async () => {

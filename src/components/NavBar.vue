@@ -22,12 +22,17 @@ const route = useRoute()
           class="size-2 rounded-full"
           :class="auction.connection === 'live' ? 'animate-pulse bg-emerald-400' : 'bg-amber-400'"
         ></span>
-        <span class="hidden sm:inline">{{ auction.connection === 'live' ? 'Live' : 'Connecting…' }}</span>
+        <span class="hidden sm:inline">{{ { live: 'Live', connecting: 'Connecting…', reconnecting: 'Reconnecting…' }[auction.connection] }}</span>
       </span>
       <span v-else class="mr-auto"></span>
 
       <template v-if="!auth.ready || auth.busy">
         <span class="text-sm text-slate-400">Loading…</span>
+      </template>
+
+      <!-- Signed in with Google but refused for now (emergency stop): retrying, no "Sign in". -->
+      <template v-else-if="auth.retrying">
+        <span class="text-sm text-slate-400">Reconnecting…</span>
       </template>
 
       <template v-else-if="auth.signedIn">
