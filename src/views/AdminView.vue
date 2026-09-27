@@ -6,7 +6,7 @@ import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
 import { viewFor } from '../lib/itemView.js'
 import { formatMoney } from '../lib/auction.js'
-import { createUserCache, fetchAllBids, winnersCsv, bidsCsv } from '../lib/admin.js'
+import { createUserCache, fetchAllBids, winnersCsv, bidsCsv, bidCountsCsv } from '../lib/admin.js'
 import { downloadText, stamp } from '../lib/download.js'
 import AdminControls from '../components/admin/AdminControls.vue'
 import AdminImport from '../components/admin/AdminImport.vue'
@@ -85,14 +85,16 @@ async function exportWinners() {
   }
 }
 
-// Reads every bid document once (one read per bid).
-async function exportBids() {
-  exporting.value = 'bids'
+// Both read every bid document once (one read per bid).
+// 'bids': every bid; 'counts': bids per bidder per item.
+async function exportBids(kind) {
+  exporting.value = kind
   exportError.value = ''
   try {
     const bids = await fetchAllBids(db)
     const users = await usersFor(bids.map((b) => b.uid))
-    downloadText(`bids_${stamp()}.csv`, bidsCsv(bids, itemsById.value, users))
+    if (kind === 'bids') downloadText(`bids_${stamp()}.csv`, bidsCsv(bids, itemsById.value, users))
+    else downloadText(`bids-per-bidder_${stamp()}.csv`, bidCountsCsv(bids, items.value, users))
   } catch (e) {
     console.error(e)
     exportError.value = 'Export failed.'
@@ -120,9 +122,18 @@ async function exportBids() {
           :disabled="!!exporting || !stats.bids"
           :title="`Reads ${stats.bids} bid documents`"
           class="rounded-md bg-white px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40"
-          @click="exportBids"
+          @click="exportBids('bids')"
         >
           {{ exporting === 'bids' ? 'Exporting…' : 'All bids CSV' }}
+        </button>
+        <button
+          type="button"
+          :disabled="!!exporting || !stats.bids"
+          :title="`Bids per bidder on each item; reads ${stats.bids} bid documents`"
+          class="rounded-md bg-white px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-40"
+          @click="exportBids('counts')"
+        >
+          {{ exporting === 'counts' ? 'Exporting…' : 'Bids per bidder CSV' }}
         </button>
       </div>
     </div>

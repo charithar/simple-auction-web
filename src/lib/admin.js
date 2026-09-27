@@ -232,6 +232,32 @@ export function winnersCsv(items, settings, users, now = Date.now()) {
   )
 }
 
+// One row per bidder, one column per lot (lot order): how many bids each bidder
+// placed on each item, a total per bidder and a totals row. Every item gets a
+// column, with or without bids; a bid on an item that no longer exists gets a
+// column named after its id, so the totals still add up.
+export function bidCountsCsv(bids, items, users) {
+  const columns = [...items].sort((a, b) => a.order - b.order).map((it) => ({ id: it.id, label: `Lot ${it.order}: ${it.title}` }))
+  const known = new Set(columns.map((c) => c.id))
+  for (const id of [...new Set(bids.map((b) => b.itemId))].filter((id) => !known.has(id)).sort()) {
+    columns.push({ id, label: id })
+  }
+  const byUid = new Map()
+  for (const b of bids) {
+    if (!byUid.has(b.uid)) byUid.set(b.uid, new Map())
+    const counts = byUid.get(b.uid)
+    counts.set(b.itemId, (counts.get(b.itemId) ?? 0) + 1)
+  }
+  const rows = [...byUid].map(([uid, counts]) => {
+    const u = users.get(uid)
+    const total = [...counts.values()].reduce((sum, n) => sum + n, 0)
+    return [u?.name ?? uid, u?.email ?? '', total, ...columns.map((c) => counts.get(c.id) ?? 0)]
+  })
+  rows.sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { sensitivity: 'base' }) || a[1].localeCompare(b[1]))
+  const totals = ['Total', '', bids.length, ...columns.map((c) => bids.filter((b) => b.itemId === c.id).length)]
+  return toCsv(['Bidder', 'Bidder email', 'Total bids', ...columns.map((c) => c.label)], [...rows, totals])
+}
+
 export function bidsCsv(bids, itemsById, users) {
   return toCsv(
     ['Lot', 'Title', 'Bid #', 'Amount', 'Bidder', 'Bidder email', 'Placed (UTC)'],

@@ -67,6 +67,21 @@ try {
   const bidRows = bidsFile ? readFileSync(`${DL}/${bidsFile}`, 'utf8').split('\r\n') : []
   check(!!bidsFile && bidRows[0].includes('Bidder email') && bidRows.length > 1, `all-bids CSV downloaded (${bidRows.length - 1} rows)`)
 
+  // Bids per bidder: its totals row must add up to the all-bids export.
+  await sleep(500)
+  await realClick('Bids per bidder CSV')
+  let countsFile
+  for (let t = 0; t < 30 && !countsFile; t++) {
+    await sleep(500)
+    countsFile = readdirSync(DL).find((f) => f.startsWith('bids-per-bidder_') && f.endsWith('.csv'))
+  }
+  const countRows = countsFile ? readFileSync(`${DL}/${countsFile}`, 'utf8').split('\r\n') : []
+  const totalBids = Number(countRows.at(-1)?.split(',')[2])
+  check(
+    !!countsFile && countRows[0].includes('Lot 0') && countRows.at(-1).startsWith('Total,') && totalBids === bidRows.length - 1,
+    `bids-per-bidder CSV downloaded (${countRows.length - 2} bidder(s), ${totalBids} bids in total)`,
+  )
+
   // +5m: the row and the closing-time field both move.
   const before = await page.$eval('#end-item-000', (i) => i.value)
   await firstRowButton('td:last-child button')

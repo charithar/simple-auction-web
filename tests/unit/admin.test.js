@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planImport, toCsv, winnersCsv, bidsCsv } from '../../src/lib/admin.js'
+import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv } from '../../src/lib/admin.js'
 
 const ts = (ms) => ({ toMillis: () => ms })
 const END = Date.UTC(2030, 5, 1, 12)
@@ -79,6 +79,41 @@ describe('CSV', () => {
     expect(rows[0]).toMatch(/^1,Unsold,,No bids,,Rs\.,0,,,/)
     expect(rows[1]).toMatch(/^2,Sold one,,Sold,150,Rs\.,2,Ann,ann@x.com,/)
     expect(rows[2]).toMatch(/^3,Still open,,Open,100,Rs\.,1,u2,,/)
+  })
+
+  describe('bidCountsCsv', () => {
+    const items = [
+      dbItem({ order: 2, id: 'item-002', title: 'Lamp' }),
+      dbItem({ order: 1, id: 'item-001', title: 'Desk' }),
+      dbItem({ order: 3, id: 'item-003', title: 'No bids here' }),
+    ]
+    const bid = (itemId, uid) => ({ itemId, uid, n: 1, amount: 1, createdAt: ts(0) })
+
+    it('counts bids per bidder per lot, with a total per bidder and a totals row', () => {
+      const bids = [bid('item-001', 'u1'), bid('item-001', 'u1'), bid('item-002', 'u1'), bid('item-002', 'u2'), bid('item-001', 'u3')]
+      const users = new Map([['u1', { name: 'bob', email: 'b@x' }], ['u2', { name: 'Ann', email: 'a@x' }]])
+      expect(bidCountsCsv(bids, items, users).split('\r\n')).toEqual([
+        '﻿Bidder,Bidder email,Total bids,Lot 1: Desk,Lot 2: Lamp,Lot 3: No bids here',
+        'Ann,a@x,1,0,1,0', // names sorted ignoring case
+        'bob,b@x,3,2,1,0',
+        'u3,,1,1,0,0', // no profile: the uid stands in
+        'Total,,5,3,2,0',
+      ])
+    })
+
+    it('bidders with the same name are told apart by email; a deleted item keeps its column', () => {
+      const bids = [bid('item-009', 'u1'), bid('item-001', 'u2')]
+      const users = new Map([['u1', { name: 'Sam', email: 'z@x' }], ['u2', { name: 'sam', email: 'a@x' }]])
+      const rows = bidCountsCsv(bids, items, users).split('\r\n')
+      expect(rows[0]).toMatch(/,Lot 3: No bids here,item-009$/)
+      expect(rows.slice(1)).toEqual(['sam,a@x,1,1,0,0,0', 'Sam,z@x,1,0,0,0,1', 'Total,,2,1,0,0,1'])
+    })
+
+    it('no bids: only the header and a zero totals row; names are neutralised', () => {
+      expect(bidCountsCsv([], items, new Map()).split('\r\n').slice(1)).toEqual(['Total,,0,0,0,0'])
+      const csv = bidCountsCsv([bid('item-001', 'u1')], items, new Map([['u1', { name: '=1+1', email: 'e@x' }]]))
+      expect(csv.split('\r\n')[1]).toBe("'=1+1,e@x,1,1,0,0")
+    })
   })
 
   it('bidsCsv orders by lot then bid number', () => {

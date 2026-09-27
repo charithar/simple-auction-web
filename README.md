@@ -153,7 +153,7 @@ The automated browser checks run Chrome and Safari's engine (WebKit) on emulated
    - **Find and block the account:** Firebase console → **Firestore → Usage** and **Authentication → Users** (recent sign-ins) → **Disable account**. It can't sign in again, but its current session keeps working for **up to an hour** (the rules don't check whether an account is disabled), so keep the emergency stop on for that hour, or *Pause bidding* if only bids are affected.
    - **Resume:** **Resume access**. Open pages reconnect by themselves (they retry after 5 s, 15 s, then every minute), so bidders don't need to reload or sign in again.
 6. **Delays:** extend individual items with +5m/+15m, or set a new closing time in the expanded row.
-7. When everything has closed: **Winners CSV** (lot, final price, winner name and email) and **All bids CSV** for the record. Then **Pause bidding**.
+7. When everything has closed: **Winners CSV** (lot, final price, winner name and email), **All bids CSV** for the record, and **Bids per bidder CSV** if you want participation figures (one row per bidder, one column per lot: how many bids they placed on each, with totals). The last two read every bid once (about 600 reads for 600 bids). Then **Pause bidding**.
 
 ## 5. Cost
 
