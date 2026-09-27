@@ -94,13 +94,24 @@ try {
     .find((b) => b.textContent.trim() === l).click(), label)
   await clickInFirstRow('End in 2m')
   await clickInFirstRow('End in 2 min?')
-  await sleep(1500)
-  const item0 = await (await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/items/item-000',
-    { headers: { Authorization: 'Bearer owner' } })).json()
-  const endsIn = Date.parse(item0.fields.endTime.timestampValue) - Date.now()
-  check(endsIn > 100_000 && endsIn <= 120_000, `"End in 2m" (confirmed) makes lot 0 close in ${Math.round(endsIn / 1000)} s`)
+  // Read the server, not the page (which shows the write at once), and wait for it:
+  // the emulator can take a few seconds to commit late in a full run.
+  const clicked = Date.now()
+  let endsIn
+  do {
+    await sleep(250)
+    const item0 = await (await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/items/item-000',
+      { headers: { Authorization: 'Bearer owner' } })).json()
+    endsIn = Date.parse(item0.fields.endTime.timestampValue) - Date.now()
+  } while (endsIn > 120_000 && Date.now() - clicked < 20_000)
+  check(endsIn > 100_000 && endsIn <= 120_000,
+    `"End in 2m" (confirmed) makes lot 0 close in ${Math.round(endsIn / 1000)} s (on the server after ${((Date.now() - clicked) / 1000).toFixed(1)} s)`)
 
   const resetBtn = 'td:last-child button:last-of-type'
+  // A row's buttons stay disabled until its last write is confirmed.
+  const rowIdle = () => page.waitForFunction(() => ![...document.querySelectorAll('tbody > tr')][0].querySelector('td:last-child button').disabled,
+    { polling: 250, timeout: 20_000 })
+  await rowIdle()
   check(await page.evaluate((s) => [...document.querySelectorAll('tbody > tr')][0].querySelector(s).disabled, resetBtn),
     'reset is disabled while bidding is open')
 
@@ -109,6 +120,7 @@ try {
   await waitForText(page, 'Paused', 5000)
   check(true, 'bidding paused (two-step confirm)')
 
+  await page.waitForFunction((s) => ![...document.querySelectorAll('tbody > tr')][0].querySelector(s).disabled, { polling: 250, timeout: 20_000 }, resetBtn)
   await firstRowButton(resetBtn)
   await sleep(200)
   await firstRowButton(resetBtn)
