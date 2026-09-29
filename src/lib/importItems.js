@@ -9,6 +9,7 @@ import { imageUrlOk } from './images.js'
 //   minIncrement: 50                     # global bid increments (items may override)
 //   maxIncrement: 1000                   # optional; omit for no cap
 //   antiSnipeSeconds: 120                # late bids extend the item to lastBid + this
+//   startTime: 2026-10-31T17:30:00+05:30 # optional: with bidding switched on, bids are accepted from here
 //   endTime: 2026-10-31T18:00:00+05:30   # when the first item closes
 //   stagger: 1m                          # optional: each next item (in list order) closes this much later
 // items:
@@ -52,6 +53,13 @@ export function parseAuctionFile(text) {
     aErr('antiSnipeSeconds must be a whole number ≥ 0')
   }
 
+  // Only when the file sets it: an import then leaves a start time set on the admin page alone.
+  if (a.startTime != null) {
+    settings.startTime = toDate(a.startTime)
+    if (settings.startTime == null) aErr('startTime must be an ISO 8601 date')
+  }
+  const start = settings.startTime ?? null
+
   const auctionEnd = a.endTime == null ? null : toDate(a.endTime)
   if (a.endTime != null && auctionEnd == null) aErr('endTime must be an ISO 8601 date')
   const staggerMs = a.stagger == null ? 0 : parseDuration(a.stagger)
@@ -93,6 +101,7 @@ export function parseAuctionFile(text) {
     } else if (auctionEnd == null) {
       err('no endTime (set auction.endTime or the item endTime)')
     }
+    if (endTime && start && endTime <= start) err('closes before bidding starts (auction.startTime)')
 
     if (r.specs != null && (typeof r.specs !== 'object' || Array.isArray(r.specs))) {
       err('specs must be a map of name: value')

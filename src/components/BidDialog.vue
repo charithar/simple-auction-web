@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { db } from '../firebase.js'
-import { formatMoney, increments } from '../lib/auction.js'
+import { formatMoney, increments, formatStart, startOf } from '../lib/auction.js'
 import { placeBid, bidErrorMessage, BidError, outbidNotice } from '../lib/bids.js'
 import { viewFor, initialBidText } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
@@ -241,7 +241,11 @@ async function submit() {
             <p v-if="!online" class="text-sm text-amber-800">You're offline. Reconnect to place a bid.</p>
           </form>
           <p v-else class="mt-3 text-sm text-slate-600">
-            {{ view.ended ? 'Bidding on this item has closed.' : 'Bidding is currently closed.' }}
+            <template v-if="view.ended">Bidding on this item has closed.</template>
+            <template v-else-if="view.upcoming">
+              Bidding opens at {{ formatStart(startOf(auction.settings), now) }}. The bid box appears here then, no need to reload.
+            </template>
+            <template v-else>Bidding is currently closed.</template>
           </p>
 
           <p

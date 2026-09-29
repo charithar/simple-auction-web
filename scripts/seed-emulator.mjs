@@ -50,6 +50,10 @@ if (offset == null) {
   process.exit(1)
 }
 const scheduled = shiftEndTimes(items, new Date(Date.now() + offset))
+// A start time in the file moves with the closing times (same gap before the first close).
+if (settings.startTime) {
+  settings.startTime = new Date(settings.startTime.getTime() + (scheduled[0].endTime - items[0].endTime))
+}
 
 setLogLevel('error')
 const env = await initializeTestEnvironment({ projectId: PROJECT, firestore: FIRESTORE })

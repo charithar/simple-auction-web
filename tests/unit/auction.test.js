@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   effectiveEnd, minNextBid, maxNextBid, validateBid, formatRemaining,
+  startOf, notStartedYet, formatStart, toLocalInput,
 } from '../../src/lib/auction.js'
 
 const settings = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -53,6 +54,39 @@ describe('validateBid', () => {
     expect(v(item({ endTime: NOW - 1, lastBidAt: NOW - 30_000 }), 5000)).toBe('ok'))
   it('rejects when bidding closed', () =>
     expect(v(item(), 5000, { ...settings, biddingOpen: false })).toBe('closed'))
+  it('rejects before the start time, accepts from it (like the rules: request.time >= startTime)', () => {
+    const at = (start) => ({ ...settings, startTime: { toMillis: () => start } })
+    const early = validateBid(item(), at(NOW + 1), 5000, NOW)
+    expect(early).toMatchObject({ ok: false, code: 'not-started' })
+    expect(early.message).toMatch(/^Bidding hasn't started yet\. It opens at .+\.$/)
+    expect(v(item(), 5000, at(NOW))).toBe('ok')
+    expect(v(item(), 5000, { ...settings, startTime: null })).toBe('ok')
+  })
+  it('a pause wins over a start time still ahead', () =>
+    expect(v(item(), 5000, { ...settings, biddingOpen: false, startTime: NOW + 1 })).toBe('closed'))
+})
+
+describe('start time', () => {
+  it('startOf reads a Timestamp, a number or nothing', () => {
+    expect(startOf({ startTime: { toMillis: () => 5 } })).toBe(5)
+    expect(startOf({ startTime: 7 })).toBe(7)
+    expect(startOf({})).toBe(null)
+  })
+  it('notStartedYet only while switched on and before the start', () => {
+    expect(notStartedYet({ biddingOpen: true, startTime: NOW + 1 }, NOW)).toBe(true)
+    expect(notStartedYet({ biddingOpen: true, startTime: NOW }, NOW)).toBe(false)
+    expect(notStartedYet({ biddingOpen: false, startTime: NOW + 1 }, NOW)).toBe(false)
+    expect(notStartedYet({ biddingOpen: true }, NOW)).toBe(false)
+  })
+  it('formatStart: the time alone today, with the day otherwise', () => {
+    const day = new Date(2026, 9, 3, 12, 0).getTime()
+    expect(formatStart(day + 60_000, day)).toBe(new Date(day + 60_000).toLocaleString([], { hour: 'numeric', minute: '2-digit' }))
+    const later = formatStart(day + 3 * 86_400_000, day)
+    expect(later).toContain(new Date(day + 3 * 86_400_000).toLocaleDateString([], { weekday: 'short' }))
+  })
+  it('toLocalInput: local date and time for a datetime-local field', () => {
+    expect(toLocalInput(new Date(2026, 0, 5, 7, 3))).toBe('2026-01-05T07:03')
+  })
 })
 
 describe('formatRemaining', () => {

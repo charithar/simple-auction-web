@@ -75,6 +75,12 @@ service cloud.firestore {
       return name is string && name.size() > 0 && name.size() <= 80;
     }
 
+    // Optional global start (settings/auction.startTime): with bidding switched on,
+    // bids are accepted from that moment, by the server's clock.
+    function started(s) {
+      return s.get('startTime', null) == null || request.time >= s.startTime;
+    }
+
     // Bidding is allowed until max(endTime, lastBidAt + antiSnipeSeconds).
     function stillOpen(item, s) {
       return request.time < item.endTime
@@ -107,6 +113,7 @@ service cloud.firestore {
         && live()
         && isRegistered()
         && s.biddingOpen == true
+        && started(s)
         && stillOpen(before, s)
         && amountOk(before, after.currentAmount, s)
         && existsAfter(bidPath(itemId, string(n)))

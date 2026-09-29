@@ -1,5 +1,5 @@
 import { doc, getDocFromServer, runTransaction, serverTimestamp } from 'firebase/firestore'
-import { validateBid, minNextBid, effectiveEnd, formatMoney } from './auction.js'
+import { validateBid, minNextBid, effectiveEnd, formatMoney, startOf, formatStart } from './auction.js'
 
 export class BidError extends Error {
   constructor(code, message) {
@@ -93,6 +93,17 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
         // listener heard of it), or the item closed.
         const current = (await getDocFromServer(doc(db, 'settings', 'auction')).catch(unavailableIfRefused)).data()
         if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently closed.')
+        // Refused before the start by the server's clock. Clearly ahead (the page hadn't
+        // heard of the start time): say so. Right at the start (this device's clock runs a
+        // little ahead): wait until it has certainly passed and try again.
+        const start = startOf(current ?? settings)
+        if (start != null && serverNow() < start + CLOSE_MARGIN_MS) {
+          if (serverNow() < start - CLOSE_MARGIN_MS) {
+            throw new BidError('not-started', `Bidding hasn't started yet. It opens at ${formatStart(start, serverNow())}.`)
+          }
+          await new Promise((r) => setTimeout(r, start + CLOSE_MARGIN_MS - serverNow()))
+          continue
+        }
         if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, current ?? settings)) {
           throw new BidError('ended', 'Bidding on this item has just closed.')
         }

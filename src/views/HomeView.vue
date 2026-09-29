@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
 import { viewFor, matchesFilter } from '../lib/itemView.js'
+import { notStartedYet, startOf, formatStart, formatRemaining } from '../lib/auction.js'
 import { allowedDomainsText } from '../lib/access.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
@@ -40,6 +41,10 @@ const rows = computed(() => {
   const ctx = { settings: auction.settings, uid: auth.user?.uid, myBidItemIds: auction.myBidItemIds, now: now.value }
   return auction.items.map((item) => ({ item, view: viewFor(item, ctx) }))
 })
+
+// Switched on with a start time still ahead: bidding opens by itself then.
+const upcoming = computed(() => !!auction.settings && notStartedYet(auction.settings, now.value))
+const startsIn = computed(() => (upcoming.value ? startOf(auction.settings) - now.value : 0))
 
 const price = (item) => item.currentAmount ?? item.startingPrice
 
@@ -118,6 +123,16 @@ const filters = computed(() => [
         role="status"
       >
         <strong>Bidding is currently closed.</strong>
+        <span v-if="auction.settings.message"> {{ auction.settings.message }}</span>
+      </div>
+      <div
+        v-else-if="upcoming"
+        class="mb-4 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900"
+        role="status"
+      >
+        <strong>Bidding opens at {{ formatStart(startOf(auction.settings), now) }}</strong>
+        (in <span class="tabular-nums">{{ formatRemaining(startsIn) }}</span>).
+        Look around now; this page opens bidding by itself.
         <span v-if="auction.settings.message"> {{ auction.settings.message }}</span>
       </div>
 

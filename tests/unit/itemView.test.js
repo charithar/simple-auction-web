@@ -36,6 +36,15 @@ describe('viewFor', () => {
     expect(view(item({ endTime: ts(NOW + 121_000) })).final).toBe(false)
     expect(view(item({ endTime: ts(NOW - 1_000) })).final).toBe(false) // ended
   })
+  it('before the start time: upcoming with a countdown, no bidding, never "final"', () => {
+    const s = { ...settings, startTime: ts(NOW + 90_000) }
+    expect(view(item({ endTime: ts(NOW + 100_000) }), { settings: s })).toMatchObject({
+      status: 'upcoming', upcoming: true, startsIn: 90_000, canBid: false, final: false, ended: false,
+    })
+    expect(view(item(), { settings: s, now: NOW + 90_000 })).toMatchObject({ status: 'open', upcoming: false, startsIn: 0, canBid: true })
+    // Paused: not "upcoming" (it won't open by itself), just closed.
+    expect(view(item(), { settings: { ...s, biddingOpen: false } })).toMatchObject({ upcoming: false, canBid: false })
+  })
   it('cannot bid when bidding is closed', () => {
     expect(view(item(), { settings: { ...settings, biddingOpen: false } }).canBid).toBe(false)
   })

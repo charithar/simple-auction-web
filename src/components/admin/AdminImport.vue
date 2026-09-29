@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { db } from '../../firebase.js'
 import { parseAuctionFile } from '../../lib/importItems.js'
 import { planImport, applyImport } from '../../lib/admin.js'
+import { toMillis } from '../../lib/auction.js'
 import ConfirmButton from './ConfirmButton.vue'
 
 const props = defineProps({
@@ -29,7 +30,9 @@ const fieldCounts = computed(() => {
 const warnings = computed(() => plan.value?.updates.filter((u) => u.warnings.length) ?? [])
 const settingsChanged = computed(() =>
   plan.value && (!props.settings ||
-    ['title', 'minIncrement', 'maxIncrement', 'antiSnipeSeconds'].some((k) => (plan.value.settings[k] ?? null) !== (props.settings[k] ?? null))),
+    ['title', 'minIncrement', 'maxIncrement', 'antiSnipeSeconds'].some((k) => (plan.value.settings[k] ?? null) !== (props.settings[k] ?? null)) ||
+    // A start time counts only when the file sets one (otherwise the current one is kept).
+    (plan.value.settings.startTime != null && toMillis(plan.value.settings.startTime) !== toMillis(props.settings.startTime))),
 )
 const nothingToDo = computed(() =>
   plan.value && !settingsChanged.value && !plan.value.creates.length && !plan.value.updates.length &&
@@ -109,7 +112,7 @@ const fmtFields = (fields) => fields.map((f) => FIELD_LABELS[f] ?? f).join(', ')
 
       <p class="text-slate-600">
         <span v-if="settingsChanged" class="font-medium text-sky-800">Settings will change: </span>
-        <template v-else>Settings (unchanged): </template> “{{ plan.settings.title }}”, min increment {{ plan.settings.minIncrement }}<template v-if="plan.settings.maxIncrement">, max {{ plan.settings.maxIncrement }}</template>, anti-snipe {{ plan.settings.antiSnipeSeconds }}s.
+        <template v-else>Settings (unchanged): </template> “{{ plan.settings.title }}”, min increment {{ plan.settings.minIncrement }}<template v-if="plan.settings.maxIncrement">, max {{ plan.settings.maxIncrement }}</template>, anti-snipe {{ plan.settings.antiSnipeSeconds }}s<template v-if="plan.settings.startTime">, bidding starts {{ plan.settings.startTime.toLocaleString() }}</template>.
       </p>
 
       <div v-if="warnings.length" class="rounded-md bg-amber-50 p-3 text-amber-900">

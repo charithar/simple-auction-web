@@ -7,6 +7,7 @@ Why the app is the way it is. Read this before changing behaviour that looks odd
 - **The first bid may equal the starting price.** The starting price is the minimum first bid; later bids add at least the minimum increment. Standard for auctions; rules, client and tests agree.
 - **The leading bidder may raise their own bid** (no "you're already winning" block). Considered and kept.
 - **Pseudonymous history is accepted.** Anyone watching an item can follow its bids as amount + leader uid pairs; names and emails are never exposed to bidders.
+- **Start time**: one optional start for the whole auction (not per item: items already close in a staggered order and open together). Bidders see everything, prices included, before it. It combines with the switch (both must allow bidding), so the owner can switch on early and not be at the keyboard at the start; opening costs no reads.
 - **Anti-sniping**: a bid in the last `antiSnipeSeconds` (120 s in the sample) keeps the item open until that long after the bid. "End in 2m" on the admin page exists to try it.
 - **Bidding window**: about 30 minutes, ~600 bids, ~100 bidders online at once, all items open for bidding at the same time.
 - **No backend.** No Cloud Functions or Storage: all enforcement is in the rules; alerts and notifications are client-side (the tab must stay open for notifications).

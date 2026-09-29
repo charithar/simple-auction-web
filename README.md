@@ -94,6 +94,7 @@ auction:
   minIncrement: 50          # each bid after the first must beat the current price by at least this
   maxIncrement: 1000        # typo guard; remove for no cap
   antiSnipeSeconds: 120
+  startTime: 2026-10-31T17:30:00+05:30 # optional: bids accepted from here (see "Start time" below)
   endTime: 2026-10-31T18:00:00+05:30   # when the FIRST item closes
   stagger: 1m               # each following item closes 1 minute later
 items:
@@ -111,6 +112,7 @@ items:
 
 - **Images:** hotlinked images can disappear. Put compressed photos (WebP, around 50–100 KB) in `public/images/` and reference them as `images/lot-0.webp`.
 - **Importing:** Admin → *Import auction file* shows exactly what will be added or changed before anything is written. Bids are kept. The first import leaves bidding **paused**.
+- **Start time (optional):** bidding opens by itself at `startTime`, as long as bidding is switched on. Until then bidders can sign in and browse every item and price; the page shows "Bidding opens at 7:30 PM (in 2h 14m)", cards say "Opens in …", and the bid box appears at the start without a reload. The server's clock decides, so a device with a fast clock can't bid early. You can also set or clear it on the admin page (**Bidding starts**); an import changes it only when the file has one. Every item must close after it.
 - Re-importing during the auction also re-applies the file's closing times, and the preview says so ("closing time ×44"). Change `endTime`/`stagger` in the file first, or use the per-item controls.
 
 ---
@@ -120,7 +122,7 @@ items:
 - [ ] Rules and indexes deployed (`npm run deploy:rules -- --project <id>`), with the same `VITE_ALLOWED_DOMAINS` as the site.
 - [ ] Your admin account works; ideally add a second admin as a backup.
 - [ ] API key restricted to your site and the `authDomain`, and to the four APIs (setup step 6).
-- [ ] `data/auction.yml` has the real `endTime`, prices and increments, and every image loads.
+- [ ] `data/auction.yml` has the real `endTime` (and `startTime` if bidding should open by itself), prices and increments, and every image loads.
 - [ ] Imported on the admin page. Check the preview, apply, then spot-check a few items on the bidder page.
 - [ ] Budget alert set up (setup step 7), and App Check enforced.
 - [ ] Test on real phones: the **real-device check** below, on an iPhone and an Android. Sign-in doesn't work inside Facebook/Instagram in-app browsers, so tell bidders to open the link in Chrome or Safari.
@@ -144,7 +146,7 @@ The automated browser checks run Chrome and Safari's engine (WebKit) on emulated
 
 ## 4. On the day
 
-1. Admin → **Open bidding**.
+1. Admin → **Open bidding**. With a start time, do this any time before it: the badge says "Opens at 7:30 PM" and bidding opens by itself then (bidders need no reload). Without one, bidding opens at once.
 2. Keep the admin page open. It shows live prices, leading bidders, bid counts and items closing soon.
 3. Glance at Firebase console → **Firestore → Usage** now and then. See the cost section below for what's normal.
 4. **Problems** (wrong price, item withdrawn): *Pause bidding* with a message, fix the item (set its closing time, or reset its bids while paused), then *Open bidding*. To withdraw an item, pause first: setting its closing time in the past doesn't close it if its last bid was within the anti-snipe window (2 minutes by default).
@@ -249,6 +251,7 @@ npm run e2e:outbid                # two bidders: outbid toast and notification, 
 npm run e2e:phone                 # the whole journey on a 390x844 touch screen
 npm run e2e:webkit                # Safari's engine on an emulated iPhone: sign-in, bid, outbid
 npm run e2e:timing                # closing: final minutes, wrong device clock, anti-sniping, "You won" (~2 min)
+npm run seed -- --admin-only smoke0@example.com && npm run e2e:start   # start time: before, at and after (~1 min)
 npm run seed -- --admin-only smoke0@example.com && npm run e2e:killswitch   # emergency stop and recovery
 npm run seed -- --admin-only smoke0@example.com && npm run e2e:admin   # admin page; changes data, re-seed after
 # HEADFUL=1 to watch; screenshots go to test-results/browser/. E2E_SKIP=webkit,timing skips scripts in e2e:all.

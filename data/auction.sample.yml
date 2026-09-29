@@ -8,6 +8,7 @@ auction:
   minIncrement: 250       # every bid after the first must beat the current price by at least this
   maxIncrement: 5000      # guard against typos; remove for no cap
   antiSnipeSeconds: 120   # a late bid keeps the item open until 2 minutes after it
+  # startTime: 2026-10-31T17:30:00+05:30   # optional: with bidding switched on, bids are accepted from here
   endTime: 2026-10-31T18:00:00+05:30   # when the FIRST item closes
   stagger: 1m             # each following item closes 1 minute later (list order)
 

@@ -192,6 +192,32 @@ describe('invalid bids are rejected by the rules', () => {
   })
 })
 
+describe('start time', () => {
+  const startAt = (ms) => seed((fs) => updateDoc(doc(fs, 'settings/auction'), { startTime: ms == null ? null : Timestamp.fromMillis(ms) }))
+
+  it('rejects bids before the start time, by the server clock', async () => {
+    await startAt(Date.now() + HOUR)
+    await assertFails(rawBid(db('alice'), 'item1', { n: 1, amount: 5000, uid: 'alice' }))
+  })
+  it('accepts bids once the start time has passed', async () => {
+    await startAt(Date.now() - 1000)
+    await assertSucceeds(rawBid(db('alice'), 'item1', { n: 1, amount: 5000, uid: 'alice' }))
+  })
+  it('a cleared (null) start time imposes nothing', async () => {
+    await startAt(null)
+    await assertSucceeds(rawBid(db('alice'), 'item1', { n: 1, amount: 5000, uid: 'alice' }))
+  })
+  it('a page that has not heard of the start time yet is told bidding has not started', async () => {
+    await startAt(Date.now() + HOUR)
+    const bid = placeBid(db('alice'), { itemId: 'item1', uid: 'alice', amount: 5000, settings: SETTINGS })
+    await expect(bid).rejects.toMatchObject({ code: 'not-started' })
+    expect((await getDoc(doc(db('alice'), 'items/item1'))).data().bidCount).toBe(0)
+  })
+  it('bidders cannot move the start time', async () => {
+    await assertFails(updateDoc(doc(db('alice'), 'settings/auction'), { startTime: null }))
+  })
+})
+
 describe('end time and anti-sniping', () => {
   it('rejects bids after endTime when there was no late bid', async () => {
     await seed((fs) => updateDoc(doc(fs, 'items/item1'), { endTime: Timestamp.fromMillis(Date.now() - 1000) }))

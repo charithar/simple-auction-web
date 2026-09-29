@@ -19,7 +19,7 @@ Format documented at the top of `lib/importItems.js` (`parseAuctionFile`): `auct
 ## Data model
 
 ```
-settings/auction        { title, biddingOpen, message, minIncrement, maxIncrement|null, antiSnipeSeconds }  read: signed-in, write: admin
+settings/auction        { title, biddingOpen, message, minIncrement, maxIncrement|null, antiSnipeSeconds, startTime? }  read: signed-in, write: admin
 settings/killswitch     { since }   emergency stop: while it exists the rules refuse every non-admin request (live())
 items/{item-NNN}        { order, title, subtitle, category, condition, specs[{name,value}], detail, images[],
                           currency, startingPrice, endTime, minIncrement?, maxIncrement?,
@@ -36,6 +36,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 - **Emergency stop:** every non-admin rule also requires `live()` = `!exists(settings/killswitch)` (1 read per request); admins keep access (`live() || isAdmin()`, and can read their own `admins` doc). New requests are refused at once, and on the live site open listeners are cut too (the emulator doesn't do that).
 - **A bid** (`lib/bids.js` `placeBid`) is one transaction: update the item (`currentAmount`, `highBidderUid`, `bidCount+1`, `lastBidAt = request.time`) and create `bids/{n}`. The rules cross-check both with `get`/`getAfter`, so neither can be written alone. Only those four item fields may change.
 - **Increments:** the first bid ≥ `currentAmount` (the starting price); later bids ≥ `currentAmount + minIncrement` and ≤ `currentAmount + maxIncrement`; item values override settings.
+- **Start time** (optional `settings.startTime`, global): bids need `biddingOpen == true` **and** `request.time >= startTime` (`started()`; absent/null = no start). The switch stays the master pause. Client: `startOf`, `notStartedYet` (switched on and before the start), `validateBid` → `not-started`, `viewFor` → `status: 'upcoming'`, `upcoming`, `startsIn`, `canBid` false, never `final`. Before the start bidders see everything (prices included); nothing is written at the start (0 reads): pages switch by their corrected clock. A refusal right at the start (device clock slightly ahead; within `CLOSE_MARGIN_MS` of it) waits until 2 s after the start and retries; a start clearly ahead (page hadn't heard of it) → "Bidding hasn't started yet. It opens at …". Set by the import only when the file has `startTime` (so an admin-set one survives), or `setStartTime` on the admin page; items must close after it (import error).
 - **Anti-sniping:** effective end = `max(endTime, lastBidAt + antiSnipeSeconds)`; `lastBidAt` must equal `request.time`.
 - **Bid deletes** (resets) only by admins and only while `biddingOpen == false`.
 - **Client mirror:** `lib/auction.js` (`validateBid`, `effectiveEnd`, `minNextBid`…) and `lib/itemView.js` (`viewFor`: status, standing winning/outbid/won/lost, min/max bid, `final` = under `FINAL_MS` 2 min). Keep them identical to the rules.
@@ -62,6 +63,7 @@ admins/{uid}            {}   created by hand in the Firebase console; no client 
 - `views/AdminView.vue` (`#/admin`, route-guarded; uses the same store) from `components/admin/*` on top of `lib/admin.js` (functions take `db`, so emulator tests call them directly):
   - Import: `planImport` (pure diff, warnings when an item with bids would get a new price/end/increments) then `applyImport` (settings merged so `biddingOpen`/`message` survive; a first import leaves bidding closed; one transaction per item: an item that got bids after the preview keeps its terms and is reported in `skipped`; price follows a new starting price only if the item has no bids at apply time; items deleted since the preview aren't recreated; items with bids are never removed).
   - Per item: +5m/+15m (`extendItem`, from max(effective end, now)), "End in 2m" (`endItemIn`, for trying anti-sniping), set the closing time, bid history, reset (`resetItemBids`: only while paused; deletes bids in chunks of `BATCH_SIZE` 450 and resets the item last, so an interrupted reset can be rerun).
+  - Start time in `AdminControls.vue` (**Bidding starts**, datetime-local, "No start time" clears; badge "Opens at …" while switched on before it; the date input helper `toLocalInput` lives in `lib/auction.js`).
   - Reset all bids (`resetAllBids`, `AdminResetAll.vue`), emergency stop (`AdminControls.vue`, `setKillSwitch`, `subscribeKillSwitch`), pause/open + message.
   - Exports: winners CSV, all-bids CSV and bids-per-bidder CSV (`bidCountsCsv`: bidder rows × lot columns of bid counts, a total per bidder and a totals row; the last two read every bid once) (UTF-8 BOM; text cells starting with `= + - @` tab/CR get a leading `'` against formula injection). User names via `createUserCache` (one read per bidder per session). Destructive actions use the two-step `ConfirmButton`.
 - `main.js`: one automatic reload when a lazy chunk fails to load after a redeploy (guarded against loops).

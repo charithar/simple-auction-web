@@ -5,7 +5,7 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
 import {
   planImport, applyImport, resetItemBids, resetAllBids, extendItem, endItemIn, fetchItemBids, fetchAllBids, updateSettings,
-  createUserCache,
+  createUserCache, setStartTime,
 } from '../../src/lib/admin.js'
 import { placeBid } from '../../src/lib/bids.js'
 import { parseAuctionFile } from '../../src/lib/importItems.js'
@@ -128,6 +128,29 @@ describe('import', () => {
     const res = await importAs('admin', file('  - { id: 1, title: One, startingPrice: 100, specs: { CPU: i5 } }'), { removeMissing: true })
     expect(res.removed).toBe(1)
     expect((await raw(listItems)).map((i) => i.id)).toEqual(['item-001', 'item-003'])
+  })
+})
+
+describe('start time', () => {
+  it('the admin sets and clears it; bidders cannot', async () => {
+    await importAs('admin', file(THREE))
+    const at = new Date(Date.now() + 3_600_000)
+    await setStartTime(db('admin'), at)
+    expect((await raw(getSettings)).startTime.toMillis()).toBe(at.getTime())
+    await assertFails(setStartTime(db('alice'), null))
+    await setStartTime(db('admin'), null)
+    expect((await raw(getSettings)).startTime).toBe(null)
+  })
+
+  it('an import sets it only when the file has one', async () => {
+    const start = new Date(Date.now() + 60_000)
+    const withStart = parseAuctionFile(`
+auction: { title: Test, minIncrement: 50, startTime: "${start.toISOString()}", endTime: "${future}" }
+items:${THREE}`)
+    await importAs('admin', withStart)
+    expect((await raw(getSettings)).startTime.toMillis()).toBe(start.getTime())
+    await importAs('admin', file(THREE)) // no startTime in the file: the current one stays
+    expect((await raw(getSettings)).startTime.toMillis()).toBe(start.getTime())
   })
 })
 

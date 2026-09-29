@@ -11,10 +11,12 @@ defineProps({ view: { type: Object, required: true } })
       'font-semibold text-rose-600': view.status === 'closing',
       'animate-pulse': view.final,
       'text-slate-700': view.status === 'open',
+      'font-medium text-sky-700': view.status === 'upcoming',
     }"
     class="tabular-nums"
   >
     <template v-if="view.ended">Ended</template>
+    <template v-else-if="view.upcoming">Opens in {{ formatRemaining(view.startsIn) }}</template>
     <template v-else>
       {{ formatRemaining(view.remaining) }} left<span
         v-if="view.extended"

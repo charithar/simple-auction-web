@@ -1,4 +1,4 @@
-import { effectiveEnd, minNextBid, maxNextBid } from './auction.js'
+import { effectiveEnd, minNextBid, maxNextBid, notStartedYet, startOf } from './auction.js'
 
 // The last minutes of an item: highlighted on the card, since that's when
 // anti-snipe extensions and last bids happen.
@@ -16,7 +16,8 @@ export function matchesFilter(filter, view) {
 }
 
 // Derived, per-viewer state of an item at time `now`.
-// status: 'open' | 'closing' (under 5 min) | 'ended'; final: under FINAL_MS left
+// status: 'upcoming' (switched on, start time not reached) | 'open' | 'closing' (under 5 min) | 'ended'
+// final: under FINAL_MS left (never while upcoming); startsIn: ms until the start while upcoming
 // standing: null | 'winning' | 'outbid' | 'won' | 'lost'
 export function viewFor(item, { settings, uid, myBidItemIds, now }) {
   const end = effectiveEnd(item, settings)
@@ -24,6 +25,7 @@ export function viewFor(item, { settings, uid, myBidItemIds, now }) {
   const ended = remaining <= 0
   const isHigh = uid != null && item.highBidderUid === uid
   const hasBid = isHigh || myBidItemIds.has(item.id)
+  const upcoming = !ended && notStartedYet(settings, now)
 
   let standing = null
   if (hasBid) standing = ended ? (isHigh ? 'won' : 'lost') : isHigh ? 'winning' : 'outbid'
@@ -33,10 +35,12 @@ export function viewFor(item, { settings, uid, myBidItemIds, now }) {
     remaining,
     ended,
     extended: end > item.endTime.toMillis(),
-    status: ended ? 'ended' : remaining < 5 * 60_000 ? 'closing' : 'open',
-    final: !ended && remaining < FINAL_MS,
+    status: ended ? 'ended' : upcoming ? 'upcoming' : remaining < 5 * 60_000 ? 'closing' : 'open',
+    final: !ended && !upcoming && remaining < FINAL_MS,
+    upcoming,
+    startsIn: upcoming ? startOf(settings) - now : 0,
     standing,
-    canBid: !ended && settings.biddingOpen === true,
+    canBid: !ended && !upcoming && settings.biddingOpen === true,
     minBid: minNextBid(item, settings),
     maxBid: maxNextBid(item, settings),
   }

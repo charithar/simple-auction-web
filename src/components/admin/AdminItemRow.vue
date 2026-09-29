@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { db } from '../../firebase.js'
 import { extendItem, resetItemBids, fetchItemBids, setItemEnd, endItemIn } from '../../lib/admin.js'
-import { formatMoney } from '../../lib/auction.js'
+import { formatMoney, toLocalInput } from '../../lib/auction.js'
 import TimeLeft from '../TimeLeft.vue'
 import ConfirmButton from './ConfirmButton.vue'
 
@@ -72,11 +72,6 @@ const reset = () => run(async () => {
   bids.value = []
 })
 const saveEnd = () => run(() => setItemEnd(db, props.item.id, new Date(endInput.value)))
-
-function toLocalInput(d) {
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
-}
 </script>
 
 <template>

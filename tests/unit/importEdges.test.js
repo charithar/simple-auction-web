@@ -32,6 +32,17 @@ items: [{ id: 1, title: A, startingPrice: 100 }, { id: 2, title: B, startingPric
       .toEqual(['auction: stagger must look like 30s, 1m, 2h or a number of seconds'])
   })
 
+  it('startTime: optional; a date when set; items must close after it', () => {
+    const file = (start) => `
+auction: { minIncrement: 50, endTime: 2030-01-01T10:00:00Z, stagger: 1m${start ? `, startTime: ${start}` : ''} }
+items: [{ id: 1, title: A, startingPrice: 100 }, { id: 2, title: B, startingPrice: 100 }]`
+    expect(parseAuctionFile(file()).settings).not.toHaveProperty('startTime') // an import keeps the current one
+    expect(parseAuctionFile(file('2030-01-01T09:00:00Z')).settings.startTime).toEqual(new Date('2030-01-01T09:00:00Z'))
+    expect(errorsOf(file('"when the doors open"'))).toEqual(['auction: startTime must be an ISO 8601 date'])
+    // A starts together with its close, B a minute later: only A is wrong.
+    expect(errorsOf(file('2030-01-01T10:00:00Z'))).toEqual(['items[0] (id 1): closes before bidding starts (auction.startTime)'])
+  })
+
   it('needs a non-empty item list', () => {
     expect(errorsOf('auction: { minIncrement: 50 }\nitems: []')).toEqual(['items: expected a non-empty list'])
     expect(errorsOf('auction: { minIncrement: 50 }\nitems: { a: 1 }')).toEqual(['items: expected a non-empty list'])

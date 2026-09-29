@@ -122,6 +122,10 @@ export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction
 
 // Emergency stop: while settings/killswitch exists the rules refuse everyone
 // but admins (see firestore.rules live()).
+// The global start (null clears it): with bidding switched on, bids are accepted from then.
+export const setStartTime = (db, date) =>
+  updateSettings(db, { startTime: date ? Timestamp.fromDate(date) : null })
+
 export const setKillSwitch = (db, on) => {
   const ref = doc(db, 'settings', 'killswitch')
   return on ? setDoc(ref, { since: serverTimestamp() }) : deleteDoc(ref)

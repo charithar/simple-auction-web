@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-const SCRIPTS = ['bidder', 'outbid', 'phone', 'webkit', 'killswitch', 'timing', 'admin'] // admin last: it changes data
+const SCRIPTS = ['bidder', 'outbid', 'phone', 'webkit', 'killswitch', 'timing', 'start', 'admin'] // admin last: it changes data
 const SCRIPT_LIMIT_MS = 8 * 60_000
 const skip = new Set((process.env.E2E_SKIP ?? '').split(',').filter(Boolean))
 const isWin = process.platform === 'win32'

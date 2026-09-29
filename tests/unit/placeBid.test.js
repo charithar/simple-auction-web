@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // placeBid's handling of refused bids, with Firestore scripted: `denials` is how
 // many commits the "server" refuses, `settingsNow` what a server read of
@@ -84,6 +84,48 @@ describe('placeBid: refusals on an unchanged item', () => {
     state.settingsNow = { ...SETTINGS, biddingOpen: false }
     await expect(bid()).rejects.toMatchObject({ code: 'closed', message: 'Bidding is currently closed.' })
     expect(state.commits).toBe(2)
+  })
+
+  describe('refused before the start time', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('a start clearly ahead (the page had not heard of it): "hasn\'t started", at once', async () => {
+      state.denials = 5
+      state.settingsNow = { ...SETTINGS, startTime: ts(Date.now() + 60_000) }
+      const p = bid()
+      const caught = p.catch((e) => e)
+      await vi.advanceTimersByTimeAsync(1_000) // only the usual short pause between the two attempts
+      expect(await caught).toMatchObject({ code: 'not-started', message: expect.stringMatching(/^Bidding hasn't started yet\. It opens at .+\.$/) })
+      expect(state.commits).toBe(2)
+    })
+
+    it('right at the start (this device runs a little ahead): waits it out and the retry goes through', async () => {
+      state.denials = 2
+      state.settingsNow = { ...SETTINGS, startTime: ts(Date.now() + 500) }
+      const p = bid()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(state.commits).toBe(2) // waiting until 2 s after the start
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(p).resolves.toMatchObject({ bidCount: 1 })
+      expect(state.commits).toBe(3)
+    })
+
+    it('still refused after waiting: the start is no longer the reason, so the refusal stands', async () => {
+      state.denials = 5
+      state.settingsNow = { ...SETTINGS, startTime: ts(Date.now() + 500) }
+      const caught = bid().catch((e) => e)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(await caught).toMatchObject({ code: 'permission-denied' })
+      expect(state.commits).toBe(3)
+    })
+
+    it('a start long past does not explain a refusal: retried as before', async () => {
+      Object.assign(state, { denials: 2, settingsNow: { ...SETTINGS, startTime: ts(Date.now() - 60_000) } })
+      const p = bid()
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(p).resolves.toMatchObject({ bidCount: 1 })
+    })
   })
 
   it('within 2 s of the end: "just closed"', async () => {
