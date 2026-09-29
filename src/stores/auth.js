@@ -78,38 +78,41 @@ export const useAuthStore = defineStore('auth', () => {
   let started = false
   let generation = 0 // ignores results from a previous auth state
   let retryTimer = null
+  let signInAttempt = 0 // a newer click supersedes an older popup
 
   function init() {
     if (started) return
     started = true
-    onAuthStateChanged(auth, async (fbUser) => {
-      const gen = ++generation
-      signingIn.value = false // from here on busy/retrying/error tell the story
-      clearTimeout(retryTimer)
-      retryTimer = null
-      retrying.value = false
-      if (!fbUser) {
-        user.value = null
-        isAdmin.value = false
-        busy.value = false // a sign-out can arrive while a profile sync is still running
-        markReady()
-        return
-      }
-      // Other domains are refused by the rules anyway; sign them out before any
-      // Firestore request and say which account to use.
-      if (!emailAllowed(fbUser.email, { emulator: useEmulators })) {
-        const domains = allowedDomainsText()
-        error.value = domains
-          ? `Please sign in with your ${domains} Google account.`
-          : 'Sign-in is not set up for this site yet (no allowed domains configured).'
-        user.value = null
-        isAdmin.value = false
-        fbSignOut(auth).catch(() => {})
-        markReady()
-        return
-      }
-      await loadProfile(fbUser, gen, 0)
-    })
+    onAuthStateChanged(auth, handleAuthState)
+  }
+
+  async function handleAuthState(fbUser) {
+    const gen = ++generation
+    signingIn.value = false // from here on busy/retrying/error tell the story
+    clearTimeout(retryTimer)
+    retryTimer = null
+    retrying.value = false
+    if (!fbUser) {
+      user.value = null
+      isAdmin.value = false
+      busy.value = false // a sign-out can arrive while a profile sync is still running
+      markReady()
+      return
+    }
+    // Other domains are refused by the rules anyway; sign them out before any
+    // Firestore request and say which account to use.
+    if (!emailAllowed(fbUser.email, { emulator: useEmulators })) {
+      const domains = allowedDomainsText()
+      error.value = domains
+        ? `Please sign in with your ${domains} Google account.`
+        : 'Sign-in is not set up for this site yet (no allowed domains configured).'
+      user.value = null
+      isAdmin.value = false
+      fbSignOut(auth).catch(() => {})
+      markReady()
+      return
+    }
+    await loadProfile(fbUser, gen, 0)
   }
 
   // Profile sync (also measures the clock offset) + admin check on every page
@@ -173,14 +176,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   const whenReady = () => readyPromise
 
+  // The button stays usable while the popup is open ("Signing in…"): clicking again
+  // opens a new popup (e.g. one lost behind the window); the older one is cancelled.
   async function signIn() {
     error.value = ''
     signingIn.value = true
+    const attempt = ++signInAttempt
+    const gen = generation
     try {
       // On success the auth state handler clears signingIn as it sets busy: no gap.
-      await signInWithPopup(auth, googleProvider)
+      const cred = await signInWithPopup(auth, googleProvider)
+      // If Firebase was still signed in as this account (the sign-out after a failed
+      // profile load failed too), no new auth state arrives: load the profile here.
+      await new Promise((r) => setTimeout(r, 0))
+      if (generation === gen && attempt === signInAttempt) {
+        if (cred?.user) await handleAuthState(cred.user) // clears signingIn
+        else signingIn.value = false // nothing to wait for: never leave "Signing in…" up
+      }
     } catch (e) {
-      signingIn.value = false
+      if (attempt === signInAttempt) signingIn.value = false
       if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return
       console.error('Sign-in failed', e)
       error.value = signInMessages[e.code]

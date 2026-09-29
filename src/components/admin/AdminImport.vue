@@ -2,8 +2,8 @@
 import { ref, computed } from 'vue'
 import { db } from '../../firebase.js'
 import { parseAuctionFile } from '../../lib/importItems.js'
-import { planImport, applyImport } from '../../lib/admin.js'
-import { toMillis } from '../../lib/auction.js'
+import { planImport, applyImport, lotsText } from '../../lib/admin.js'
+import { toMillis, startOf, closingBeforeStart } from '../../lib/auction.js'
 import ConfirmButton from './ConfirmButton.vue'
 
 const props = defineProps({
@@ -34,6 +34,15 @@ const settingsChanged = computed(() =>
     // A start time counts only when the file sets one (otherwise the current one is kept).
     (plan.value.settings.startTime != null && toMillis(plan.value.settings.startTime) !== toMillis(props.settings.startTime))),
 )
+// A file without startTime keeps the current one (clearing it is on the Bidding panel):
+// show it, and warn about items in the file that would close before it.
+const keptStart = computed(() => {
+  if (!plan.value || plan.value.settings.startTime != null || !props.settings) return null
+  const ms = startOf(props.settings)
+  return ms == null || Number.isNaN(ms) ? null : ms
+})
+const keptConflict = computed(() =>
+  keptStart.value == null ? [] : closingBeforeStart(plan.value.items, keptStart.value, (it) => it.endTime.getTime()))
 const nothingToDo = computed(() =>
   plan.value && !settingsChanged.value && !plan.value.creates.length && !plan.value.updates.length &&
   !(removeMissing.value && plan.value.missing.some((m) => !m.hasBids)),
@@ -112,8 +121,14 @@ const fmtFields = (fields) => fields.map((f) => FIELD_LABELS[f] ?? f).join(', ')
 
       <p class="text-slate-600">
         <span v-if="settingsChanged" class="font-medium text-sky-800">Settings will change: </span>
-        <template v-else>Settings (unchanged): </template> “{{ plan.settings.title }}”, min increment {{ plan.settings.minIncrement }}<template v-if="plan.settings.maxIncrement">, max {{ plan.settings.maxIncrement }}</template>, anti-snipe {{ plan.settings.antiSnipeSeconds }}s<template v-if="plan.settings.startTime">, bidding starts {{ plan.settings.startTime.toLocaleString() }}</template>.
+        <template v-else>Settings (unchanged): </template> “{{ plan.settings.title }}”, min increment {{ plan.settings.minIncrement }}<template v-if="plan.settings.maxIncrement">, max {{ plan.settings.maxIncrement }}</template>, anti-snipe {{ plan.settings.antiSnipeSeconds }}s<template v-if="plan.settings.startTime">, bidding starts {{ plan.settings.startTime.toLocaleString() }}</template><template v-else-if="keptStart != null">, bidding starts {{ new Date(keptStart).toLocaleString() }} (kept: not in the file)</template>.
       </p>
+
+      <div v-if="keptConflict.length" class="rounded-md bg-amber-50 p-3 text-amber-900" role="alert">
+        <template v-if="keptConflict.length === plan.items.length">Every item in the file closes</template>
+        <template v-else>In the file, {{ lotsText(keptConflict) }} close{{ keptConflict.length === 1 ? 's' : '' }}</template>
+        before the current start time and would never open. Add <code>startTime</code> to the file, or change the start on the Bidding panel.
+      </div>
 
       <div v-if="warnings.length" class="rounded-md bg-amber-50 p-3 text-amber-900">
         <p class="font-medium">These items already have bids and their bidding terms will change:</p>

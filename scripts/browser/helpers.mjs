@@ -170,12 +170,15 @@ export async function setAntiSnipeSeconds(seconds) {
 }
 
 // Sets the auction's start time (settings/auction.startTime) `ms` from now; null clears it.
-export async function setStartIn(ms) {
-  const value = ms == null ? { nullValue: null } : { timestampValue: new Date(Date.now() + ms).toISOString() }
+export const setStartIn = (ms) =>
+  setStartValue(ms == null ? { nullValue: null } : { timestampValue: new Date(Date.now() + ms).toISOString() })
+
+// Stores any REST value as the start time, e.g. { stringValue: '…' } as if typed in the console.
+export async function setStartValue(value) {
   const res = await fetch(`${EMULATOR_DOCS}/settings/auction?updateMask.fieldPaths=startTime`, {
     method: 'PATCH', headers: OWNER, body: JSON.stringify({ fields: { startTime: value } }),
   })
-  if (!res.ok) throw new Error(`setStartIn: ${res.status}`)
+  if (!res.ok) throw new Error(`setStartValue: ${res.status}`)
 }
 
 // Turns the emergency stop off (settings/killswitch), e.g. after a failed run.

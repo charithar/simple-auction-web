@@ -22,14 +22,30 @@ export const effectiveEnd = (item, settings) => {
   return Math.max(end, last + settings.antiSnipeSeconds * 1000)
 }
 
-// The optional global start (settings.startTime), in ms, or null.
-export const startOf = (settings) => toMillis(settings.startTime)
+// The optional global start (settings.startTime): ms, null when there is none, or
+// NaN when it isn't a timestamp (e.g. text typed in the Firebase console): the rules
+// can't compare that with request.time, so they refuse every bid (started()).
+export const startOf = (settings) => {
+  const t = settings.startTime
+  if (t == null) return null
+  if (t instanceof Date) return t.getTime()
+  return typeof t.toMillis === 'function' ? t.toMillis() : NaN
+}
+export const startInvalid = (settings) => Number.isNaN(startOf(settings))
+
+// Bidding refused for everyone: switched off, or a start time the rules can't use.
+export const biddingClosed = (settings) => settings.biddingOpen !== true || startInvalid(settings)
 
 // Switched on, but the start time hasn't come yet: bidding opens by itself then.
 export const notStartedYet = (settings, now) => {
   const start = startOf(settings)
   return settings.biddingOpen === true && start != null && now < start
 }
+
+// Items that close at or before `start` (ms): they would never open. `endOf(item)`
+// gives an item's closing time in ms. None when there is no (valid) start.
+export const closingBeforeStart = (items, start, endOf) =>
+  start == null || Number.isNaN(start) ? [] : items.filter((it) => endOf(it) <= start)
 
 // "7:00 PM" today, else "Sat, Oct 3, 7:00 PM" (the viewer's locale and time zone).
 export const formatStart = (ms, now) => {
@@ -56,7 +72,7 @@ export const maxNextBid = (item, settings) => {
 
 // Returns { ok: true } or { ok: false, code, message }.
 export const validateBid = (item, settings, amount, now) => {
-  if (!settings.biddingOpen) return fail('closed', 'Bidding is currently closed.')
+  if (biddingClosed(settings)) return fail('closed', 'Bidding is currently closed.')
   if (notStartedYet(settings, now)) {
     return fail('not-started', `Bidding hasn't started yet. It opens at ${formatStart(startOf(settings), now)}.`)
   }

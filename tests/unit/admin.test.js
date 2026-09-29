@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv, planSchedule, currentSchedule } from '../../src/lib/admin.js'
+import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv, planSchedule, currentSchedule, lotsText } from '../../src/lib/admin.js'
 
 const ts = (ms) => ({ toMillis: () => ms })
 const END = Date.UTC(2030, 5, 1, 12)
@@ -37,6 +37,21 @@ describe('closing schedule (setup)', () => {
     expect(err(lots, NOW, 0, settings, NOW)).toBe('The first closing time is in the past.')
     expect(err(lots, END, 0, { ...settings, startTime: ts(END) }, NOW)).toBe('Items must close after bidding starts.')
     expect(planSchedule(lots, END, 0, { ...settings, startTime: ts(END - 1) }, NOW).ends).toHaveLength(3)
+  })
+
+  it('refuses a gap over 24 h and times Firestore cannot store (Invalid Date before)', () => {
+    expect(planSchedule(lots, END, 86_400_000, settings, NOW).ends).toHaveLength(3)
+    expect(planSchedule(lots, END, 86_400_001, settings, NOW).error).toBe('The gap can be at most 24h.')
+    expect(planSchedule(lots, Date.UTC(9999, 11, 31, 23, 59), 60_000, settings, NOW).error).toBe('That is too far in the future.')
+    expect(planSchedule(lots, Date.UTC(9999, 11, 31, 23, 50), 60_000, settings, NOW).ends).toHaveLength(3)
+  })
+
+  it('lotsText names lots in order, then "and N more"', () => {
+    const at = (...orders) => orders.map((order) => ({ order }))
+    expect(lotsText(at(3))).toBe('lot 3')
+    expect(lotsText(at(5, 3))).toBe('lots 3 and 5')
+    expect(lotsText(at(7, 3, 5))).toBe('lots 3, 5 and 7')
+    expect(lotsText(at(9, 7, 3, 5, 11))).toBe('lots 3, 5, 7 and 2 more')
   })
 
   it('currentSchedule: the earliest close, and the gap when it is even', () => {

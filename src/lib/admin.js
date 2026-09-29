@@ -3,7 +3,7 @@ import {
   serverTimestamp, setDoc, Timestamp, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { newItemDoc } from './importItems.js'
-import { effectiveEnd, toMillis } from './auction.js'
+import { effectiveEnd, toMillis, startOf } from './auction.js'
 
 // Fields an import may change on an existing item. Bid state
 // (currentAmount, bidCount, highBidderUid, lastBidAt) is never touched,
@@ -158,8 +158,11 @@ export function planSchedule(items, firstEnd, staggerMs, settings, now = Date.no
   }
   if (!Number.isFinite(firstEnd)) return { error: 'Choose when the first item closes.' }
   if (!Number.isInteger(staggerMs) || staggerMs < 0) return { error: 'The gap must look like 30s, 1m or 2h.' }
+  if (staggerMs > 86_400_000) return { error: 'The gap can be at most 24h.' }
+  // Firestore stores times up to the year 9999.
+  if (firstEnd + (items.length - 1) * staggerMs >= Date.UTC(10000, 0, 1)) return { error: 'That is too far in the future.' }
   if (firstEnd <= now) return { error: 'The first closing time is in the past.' }
-  const start = toMillis(settings.startTime)
+  const start = startOf(settings)
   if (start != null && firstEnd <= start) return { error: 'Items must close after bidding starts.' }
   const ends = [...items].sort((a, b) => a.order - b.order).map((it, i) => ({ id: it.id, order: it.order, end: firstEnd + i * staggerMs }))
   return { ends }
@@ -173,6 +176,15 @@ export function currentSchedule(items) {
   const gaps = ends.slice(1).map((e, i) => e - ends[i])
   const even = gaps.every((g) => g === gaps[0] && g >= 0)
   return { firstEnd: Math.min(...ends), staggerMs: even ? (gaps[0] ?? 0) : null }
+}
+
+// "lot 3", "lots 3 and 5", "lots 3, 5, 7 and 2 more": for messages naming items (lot order).
+export function lotsText(items, max = 3) {
+  const orders = items.map((it) => it.order).sort((a, b) => a - b)
+  if (orders.length === 1) return `lot ${orders[0]}`
+  const shown = orders.slice(0, max)
+  const rest = orders.length - shown.length
+  return rest > 0 ? `lots ${shown.join(', ')} and ${rest} more` : `lots ${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
 }
 
 // Writes a planned schedule in one transaction, re-checking that no item got a

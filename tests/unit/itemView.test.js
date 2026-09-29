@@ -45,6 +45,9 @@ describe('viewFor', () => {
     // Paused: not "upcoming" (it won't open by itself), just closed.
     expect(view(item(), { settings: { ...s, biddingOpen: false } })).toMatchObject({ upcoming: false, canBid: false })
   })
+  it('a start time that is not a timestamp: no bidding and no countdown (the rules refuse every bid)', () => {
+    expect(view(item(), { settings: { ...settings, startTime: '2020-01-01' } })).toMatchObject({ canBid: false, upcoming: false, status: 'open' })
+  })
   it('cannot bid when bidding is closed', () => {
     expect(view(item(), { settings: { ...settings, biddingOpen: false } }).canBid).toBe(false)
   })

@@ -64,6 +64,7 @@ try {
   const afterReload = await text(bidder)
   check(!/Starting price|\d+ bids?/.test(afterReload) && /Reconnecting…/.test(afterReload) && !/Sign in with Google/.test(afterReload),
     'a reload while it is on shows "temporarily unavailable … reconnects by itself", no items, and stays signed in')
+  check(/Sign out/.test(afterReload), 'meanwhile "Sign out" is offered (e.g. to use another account)')
 
   await admin.reload({ waitUntil: 'networkidle2' })
   await waitForText(admin, 'On: only admins have access', 15_000)

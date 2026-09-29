@@ -148,7 +148,7 @@ async function exportBids(kind) {
     </dl>
 
     <div class="grid gap-4 lg:grid-cols-2">
-      <AdminControls v-if="auction.settings" :settings="auction.settings" />
+      <AdminControls v-if="auction.settings" :settings="auction.settings" :items="items" />
       <AdminImport
         :items="items"
         :settings="auction.settings"

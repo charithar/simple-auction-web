@@ -21,13 +21,25 @@ const busy = ref(false)
 const result = ref('')
 const error = ref('')
 
-// Pre-fill with the schedule the items follow now (once, and after each apply).
+// Pre-fill with the schedule the items follow now, and follow it (e.g. per-item
+// changes, an import) until the admin starts typing. `uneven`: the current closing
+// times aren't evenly spaced, so the suggested gap is only a default.
+const touched = ref(false)
+const uneven = ref(false)
+const schedule = computed(() => currentSchedule(props.items))
 function fill() {
-  const { firstEnd, staggerMs } = currentSchedule(props.items)
+  const { firstEnd, staggerMs } = schedule.value
   firstInput.value = firstEnd == null ? '' : toLocalInput(new Date(firstEnd))
   gapInput.value = formatDuration(staggerMs ?? 60_000)
+  uneven.value = firstEnd != null && staggerMs == null
+  touched.value = false
 }
-watch(() => props.items.length > 0, (has) => has && !firstInput.value && fill(), { immediate: true })
+watch(() => `${schedule.value.firstEnd}:${schedule.value.staggerMs}`, () => touched.value || fill(), { immediate: true })
+function onInput() {
+  touched.value = true
+  error.value = ''
+  result.value = ''
+}
 
 const plan = computed(() => planSchedule(
   props.items,
@@ -66,11 +78,11 @@ async function apply() {
     <form class="mt-3 flex flex-wrap items-end gap-3" @submit.prevent>
       <label class="flex flex-col gap-1 text-sm">
         <span class="font-medium">First item closes</span>
-        <input id="schedule-first" v-model="firstInput" type="datetime-local" class="rounded-md border border-slate-300 px-2 py-1" />
+        <input id="schedule-first" v-model="firstInput" type="datetime-local" class="rounded-md border border-slate-300 px-2 py-1" @input="onInput" />
       </label>
       <label class="flex flex-col gap-1 text-sm">
         <span class="font-medium">Each next one later by</span>
-        <input id="schedule-gap" v-model="gapInput" placeholder="1m" class="w-24 rounded-md border border-slate-300 px-2 py-1" />
+        <input id="schedule-gap" v-model="gapInput" placeholder="1m" class="w-24 rounded-md border border-slate-300 px-2 py-1" @input="onInput" />
       </label>
       <ConfirmButton
         :disabled="busy || !!plan.error"
@@ -81,6 +93,9 @@ async function apply() {
         Set closing times
       </ConfirmButton>
     </form>
+    <p v-if="uneven && !touched && !plan.error" class="mt-2 text-sm text-slate-600">
+      The current closing times aren't evenly spaced; applying replaces them all with this schedule.
+    </p>
     <p v-if="plan.error" class="mt-2 text-sm text-amber-800">{{ plan.error }}</p>
     <p v-else class="mt-2 text-sm text-slate-600">
       Lot {{ first.order }} closes {{ fmt(first.end) }}<template v-if="plan.ends.length > 1">, lot {{ last.order }} (the last) {{ fmt(last.end) }}</template>.

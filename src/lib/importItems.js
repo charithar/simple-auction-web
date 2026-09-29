@@ -10,6 +10,8 @@ import { imageUrlOk } from './images.js'
 //   maxIncrement: 1000                   # optional; omit for no cap
 //   antiSnipeSeconds: 120                # late bids extend the item to lastBid + this
 //   startTime: 2026-10-31T17:30:00+05:30 # optional: with bidding switched on, bids are accepted from here
+//                                        # (absent or null: the current start is kept; clear it on the admin page)
+//                                        # Times without an offset are read in the importing browser's time zone.
 //   endTime: 2026-10-31T18:00:00+05:30   # when the first item closes
 //   stagger: 1m                          # optional: each next item (in list order) closes this much later
 // items:

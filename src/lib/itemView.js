@@ -1,4 +1,4 @@
-import { effectiveEnd, minNextBid, maxNextBid, notStartedYet, startOf } from './auction.js'
+import { effectiveEnd, minNextBid, maxNextBid, notStartedYet, startOf, biddingClosed } from './auction.js'
 
 // The last minutes of an item: highlighted on the card, since that's when
 // anti-snipe extensions and last bids happen.
@@ -40,7 +40,7 @@ export function viewFor(item, { settings, uid, myBidItemIds, now }) {
     upcoming,
     startsIn: upcoming ? startOf(settings) - now : 0,
     standing,
-    canBid: !ended && !upcoming && settings.biddingOpen === true,
+    canBid: !ended && !upcoming && !biddingClosed(settings),
     minBid: minNextBid(item, settings),
     maxBid: maxNextBid(item, settings),
   }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   effectiveEnd, minNextBid, maxNextBid, validateBid, formatRemaining,
-  startOf, notStartedYet, formatStart, toLocalInput,
+  startOf, notStartedYet, formatStart, toLocalInput, startInvalid, biddingClosed, closingBeforeStart,
 } from '../../src/lib/auction.js'
 
 const settings = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -67,16 +67,38 @@ describe('validateBid', () => {
 })
 
 describe('start time', () => {
-  it('startOf reads a Timestamp, a number or nothing', () => {
-    expect(startOf({ startTime: { toMillis: () => 5 } })).toBe(5)
-    expect(startOf({ startTime: 7 })).toBe(7)
+  const ts = (ms) => ({ toMillis: () => ms })
+  it('startOf reads a Timestamp or a Date; nothing is null; anything else is invalid (NaN)', () => {
+    expect(startOf({ startTime: ts(5) })).toBe(5)
+    expect(startOf({ startTime: new Date(7) })).toBe(7)
     expect(startOf({})).toBe(null)
+    expect(startOf({ startTime: null })).toBe(null)
+    // Typed by hand in the console: the rules can't compare these with request.time.
+    expect(startOf({ startTime: '2020-01-01T00:00:00Z' })).toBeNaN()
+    expect(startOf({ startTime: NOW })).toBeNaN()
+  })
+  it('an invalid start closes bidding, like the rules; a valid or no start does not', () => {
+    const open = { ...settings, biddingOpen: true }
+    expect(startInvalid({ ...open, startTime: 'soon' })).toBe(true)
+    expect(biddingClosed({ ...open, startTime: 'soon' })).toBe(true)
+    expect(validateBid(item(), { ...open, startTime: NOW - 1 }, 5000, NOW).code).toBe('closed')
+    expect(notStartedYet({ ...open, startTime: 'soon' }, NOW)).toBe(false) // no countdown to nowhere
+    expect(biddingClosed({ ...open, startTime: ts(NOW - 1) })).toBe(false)
+    expect(biddingClosed(open)).toBe(false)
+    expect(biddingClosed({ ...open, biddingOpen: false })).toBe(true)
   })
   it('notStartedYet only while switched on and before the start', () => {
-    expect(notStartedYet({ biddingOpen: true, startTime: NOW + 1 }, NOW)).toBe(true)
-    expect(notStartedYet({ biddingOpen: true, startTime: NOW }, NOW)).toBe(false)
-    expect(notStartedYet({ biddingOpen: false, startTime: NOW + 1 }, NOW)).toBe(false)
+    expect(notStartedYet({ biddingOpen: true, startTime: ts(NOW + 1) }, NOW)).toBe(true)
+    expect(notStartedYet({ biddingOpen: true, startTime: ts(NOW) }, NOW)).toBe(false)
+    expect(notStartedYet({ biddingOpen: false, startTime: ts(NOW + 1) }, NOW)).toBe(false)
     expect(notStartedYet({ biddingOpen: true }, NOW)).toBe(false)
+  })
+  it('closingBeforeStart: items closing at or before the start; none without a valid start', () => {
+    const items = [{ id: 'a', end: NOW - 1 }, { id: 'b', end: NOW }, { id: 'c', end: NOW + 1 }]
+    const endOf = (it) => it.end
+    expect(closingBeforeStart(items, NOW, endOf).map((it) => it.id)).toEqual(['a', 'b'])
+    expect(closingBeforeStart(items, null, endOf)).toEqual([])
+    expect(closingBeforeStart(items, NaN, endOf)).toEqual([])
   })
   it('formatStart: the time alone today, with the day otherwise', () => {
     const day = new Date(2026, 9, 3, 12, 0).getTime()

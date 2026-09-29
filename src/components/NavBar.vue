@@ -26,13 +26,25 @@ const route = useRoute()
       </span>
       <span v-else class="mr-auto"></span>
 
-      <template v-if="!auth.ready || auth.busy">
+      <template v-if="!auth.ready">
         <span class="text-sm text-slate-400">Loading…</span>
       </template>
 
-      <!-- Signed in with Google but refused for now (emergency stop): retrying, no "Sign in". -->
+      <template v-else-if="auth.busy">
+        <span class="text-sm text-slate-400">Signing in…</span>
+      </template>
+
+      <!-- Signed in with Google but refused for now (emergency stop) or a first-sign-in
+           hiccup: retrying, no "Sign in"; Sign out lets them use another account. -->
       <template v-else-if="auth.retrying">
         <span class="text-sm text-slate-400">{{ auth.error ? 'Reconnecting…' : 'Signing in…' }}</span>
+        <button
+          type="button"
+          class="rounded-md bg-slate-700 px-3 py-1.5 text-sm whitespace-nowrap hover:bg-slate-600"
+          @click="auth.signOut()"
+        >
+          Sign out
+        </button>
       </template>
 
       <template v-else-if="auth.signedIn">
@@ -63,8 +75,8 @@ const route = useRoute()
       <button
         v-else
         type="button"
-        class="rounded-md bg-white px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-900 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-70"
-        :disabled="auth.signingIn"
+        class="rounded-md bg-white px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-900 hover:bg-slate-100"
+        :title="auth.signingIn ? 'Click to open the Google sign-in window again' : ''"
         @click="auth.signIn()"
       >
         {{ auth.signingIn ? 'Signing in…' : 'Sign in with Google' }}

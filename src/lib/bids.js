@@ -1,5 +1,5 @@
 import { doc, getDocFromServer, runTransaction, serverTimestamp } from 'firebase/firestore'
-import { validateBid, minNextBid, effectiveEnd, formatMoney, startOf, formatStart } from './auction.js'
+import { validateBid, minNextBid, effectiveEnd, formatMoney, startOf, formatStart, biddingClosed } from './auction.js'
 
 export class BidError extends Error {
   constructor(code, message) {
@@ -58,6 +58,9 @@ export const outbidNotice = (item, settings) =>
 // A bid denied on an unchanged item within this margin of its end is reported as
 // "just closed": the client's clock is only an estimate of the server's.
 const CLOSE_MARGIN_MS = 2000
+// Still refused this soon after the start (after waiting out CLOSE_MARGIN_MS): this
+// device's clock runs ahead of the server's by more than the margin. Say so plainly.
+const OPENING_MS = 10_000
 
 // Places a bid atomically: updates the item and creates items/{id}/bids/{n}.
 // If another bid commits between our read and our write, either the SDK retries
@@ -92,7 +95,8 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
         // Say why when we can tell: the admin closed bidding (before our settings
         // listener heard of it), or the item closed.
         const current = (await getDocFromServer(doc(db, 'settings', 'auction')).catch(unavailableIfRefused)).data()
-        if (current && current.biddingOpen !== true) throw new BidError('closed', 'Bidding is currently closed.')
+        // Switched off, or a start time the rules can't use (not a timestamp).
+        if (current && biddingClosed(current)) throw new BidError('closed', 'Bidding is currently closed.')
         // Refused before the start by the server's clock. Clearly ahead (the page hadn't
         // heard of the start time): say so. Right at the start (this device's clock runs a
         // little ahead): wait until it has certainly passed and try again.
@@ -109,7 +113,12 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
         }
         // Open, and not closing: whatever refused us has passed (e.g. a pause of
         // under a second). Try once more before giving up.
-        if (attempt >= 3) throw e
+        if (attempt >= 3) {
+          if (start != null && serverNow() < start + OPENING_MS) {
+            throw new BidError('opening', 'Bidding is just opening. Please try again in a moment.')
+          }
+          throw e
+        }
       }
       await new Promise((r) => setTimeout(r, 100 + Math.random() * 300))
     }

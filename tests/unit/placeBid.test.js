@@ -111,13 +111,28 @@ describe('placeBid: refusals on an unchanged item', () => {
       expect(state.commits).toBe(3)
     })
 
-    it('still refused after waiting: the start is no longer the reason, so the refusal stands', async () => {
+    it('still refused after waiting (this device is more than 2 s fast): "just opening", not the generic refusal', async () => {
       state.denials = 5
       state.settingsNow = { ...SETTINGS, startTime: ts(Date.now() + 500) }
       const caught = bid().catch((e) => e)
       await vi.advanceTimersByTimeAsync(5_000)
-      expect(await caught).toMatchObject({ code: 'permission-denied' })
+      expect(await caught).toMatchObject({ code: 'opening', message: 'Bidding is just opening. Please try again in a moment.' })
       expect(state.commits).toBe(3)
+    })
+
+    it('refused well after the start: the start is not the reason, so the refusal stands', async () => {
+      Object.assign(state, { denials: 5, settingsNow: { ...SETTINGS, startTime: ts(Date.now() - 15_000) } })
+      const caught = bid().catch((e) => e)
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(await caught).toMatchObject({ code: 'permission-denied' })
+    })
+
+    it('a start time that is not a timestamp on the server: "closed" (the rules refuse every bid)', async () => {
+      Object.assign(state, { denials: 5, settingsNow: { ...SETTINGS, startTime: '2020-01-01T00:00:00Z' } })
+      const caught = bid().catch((e) => e)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(await caught).toMatchObject({ code: 'closed', message: 'Bidding is currently closed.' })
+      expect(state.commits).toBe(2)
     })
 
     it('a start long past does not explain a refusal: retried as before', async () => {

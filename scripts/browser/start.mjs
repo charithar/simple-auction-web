@@ -4,7 +4,7 @@
 // start, the open page switches to bidding by itself (no reload) and a bid goes
 // through. Sets settings/auction.startTime itself and clears it afterwards.
 // Prereqs: emulators + `npm run seed` + `npm run smoke` + admin for smoke0 + `npm run dev`.
-import { launch, signIn, waitForText, clickText, collectConsole, checker, sleep, OUT, setStartIn, rival } from './helpers.mjs'
+import { launch, signIn, waitForText, clickText, collectConsole, checker, sleep, OUT, setStartIn, setStartValue, rival } from './helpers.mjs'
 
 const START_IN = 45_000 // enough for two sign-ins through the account picker
 const { check, done } = checker()
@@ -69,6 +69,41 @@ try {
   await admin.waitForFunction(() => /\bOpen\b/.test([...document.querySelectorAll('section')].find((s) => s.innerText.includes('Bidding starts')).innerText)
     && !/Opens at/.test(document.body.innerText), { polling: 250, timeout: 5_000 }).then(() => check(true, 'admin: the panel says "Open"'), () => check(false, 'admin: the panel says "Open"'))
   await page.screenshot({ path: `${OUT}/start-after.png` })
+
+  // A start after every item closes: refused on the admin page (they would never open).
+  const biddingPanel = () => admin.evaluate(() =>
+    [...document.querySelectorAll('section')].find((s) => s.innerText.includes('Bidding starts')).innerText)
+  const afterAll = new Date(Date.now() + 3 * 3_600_000)
+  const p2 = (n) => String(n).padStart(2, '0')
+  const lateLocal = `${afterAll.getFullYear()}-${p2(afterAll.getMonth() + 1)}-${p2(afterAll.getDate())}T${p2(afterAll.getHours())}:${p2(afterAll.getMinutes())}`
+  await admin.$eval('#start-time', (el, v) => {
+    el.value = v
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }, lateLocal)
+  await sleep(300)
+  const saveDisabled = await admin.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Save start').disabled)
+  check(/Every item closes before this start/.test(await biddingPanel()) && saveDisabled,
+    'admin: a start after every item closes is refused, with the reason')
+
+  // A start time that isn't a timestamp (typed in the Firebase console): the rules refuse
+  // every bid, so the pages must say closed, and the admin must be able to clear it.
+  await setStartValue({ stringValue: 'tomorrow 7pm' })
+  const shown = await admin.waitForFunction(() => document.body.innerText.includes('Blocked: invalid start time'), { polling: 250, timeout: 10_000 })
+    .then(() => true, () => false)
+  check(shown && /isn't a date/.test(await biddingPanel()) && /No start time/.test(await biddingPanel()),
+    'admin: an invalid start time shows as blocking, with "No start time" to clear it')
+  const closed = await page.waitForFunction(() => document.body.innerText.includes('Bidding is currently closed'), { polling: 250, timeout: 10_000 })
+    .then(() => true, () => false)
+  await (await page.$$('main .grid > button'))[3].click()
+  await page.waitForSelector('dialog[open]')
+  await sleep(500)
+  check(closed && !(await page.$('dialog[open] #bid-amount')), 'bidders see "Bidding is currently closed" and no bid box, as the rules refuse')
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  await clickText(admin, 'button', 'No start time')
+  const reopened = await page.waitForFunction(() => !document.body.innerText.includes('Bidding is currently closed'), { polling: 250, timeout: 10_000 })
+    .then(() => true, () => false)
+  check(reopened, 'clearing it on the admin page reopens bidding')
 } catch (e) {
   check(false, `unexpected failure: ${e.message}`)
 } finally {

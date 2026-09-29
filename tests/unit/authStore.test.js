@@ -293,6 +293,47 @@ describe('auth store: sign-in and sign-out', () => {
     expect(auth).toMatchObject({ signedIn: true, busy: false, signingIn: false })
   })
 
+  it('Firebase still signed in as this account (no new auth state): signIn loads the profile itself', async () => {
+    const auth = useAuthStore()
+    auth.init()
+    await fb.onAuthChanged(null) // e.g. the app gave up on the profile but the sign-out failed
+    fb.signInWithPopup.mockResolvedValue({ user: fbUser() })
+    await auth.signIn() // Firebase fires no auth state change for the same user
+    expect(profile.syncProfile).toHaveBeenCalledTimes(1)
+    expect(auth).toMatchObject({ signedIn: true, signingIn: false, busy: false })
+  })
+
+  it('normally the auth state handler loads the profile, once', async () => {
+    const auth = useAuthStore()
+    auth.init()
+    await fb.onAuthChanged(null)
+    fb.signInWithPopup.mockImplementation(async () => {
+      fb.onAuthChanged(fbUser()) // Firebase reports the new user before the popup promise settles
+      return { user: fbUser() }
+    })
+    await auth.signIn()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(profile.syncProfile).toHaveBeenCalledTimes(1)
+    expect(auth.signedIn).toBe(true)
+  })
+
+  it('a second click while the popup is open supersedes it: the cancelled first one ends nothing', async () => {
+    let cancelFirst
+    let finishSecond
+    fb.signInWithPopup
+      .mockReturnValueOnce(new Promise((_, rej) => (cancelFirst = rej)))
+      .mockReturnValueOnce(new Promise((r) => (finishSecond = r)))
+    const auth = useAuthStore()
+    const first = auth.signIn()
+    const second = auth.signIn() // e.g. the first popup got lost behind the window
+    cancelFirst({ code: 'auth/cancelled-popup-request' })
+    await first
+    expect(auth.signingIn).toBe(true) // still waiting for the second popup
+    finishSecond({})
+    await second
+    expect(auth).toMatchObject({ error: '', signingIn: false }) // no user and no auth state: not stuck
+  })
+
   it('a closed popup or a failed sign-in ends the progress state', async () => {
     const auth = useAuthStore()
     for (const code of ['auth/popup-closed-by-user', 'auth/popup-blocked']) {

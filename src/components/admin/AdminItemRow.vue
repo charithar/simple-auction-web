@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { db } from '../../firebase.js'
 import { extendItem, resetItemBids, fetchItemBids, setItemEnd, endItemIn } from '../../lib/admin.js'
-import { formatMoney, toLocalInput } from '../../lib/auction.js'
+import { formatMoney, toLocalInput, startOf, closingBeforeStart } from '../../lib/auction.js'
 import TimeLeft from '../TimeLeft.vue'
 import ConfirmButton from './ConfirmButton.vue'
 
@@ -50,6 +50,8 @@ watch([open, () => props.view.end], ([isOpen]) => {
 })
 
 const money = (v) => formatMoney(props.item.currency, v)
+// Closes at or before the auction's start time: it would never open.
+const beforeStart = computed(() => closingBeforeStart([props.item], startOf(props.settings), () => props.view.end).length > 0)
 const endLabel = computed(() => new Date(props.view.end).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))
 
 async function run(fn) {
@@ -95,6 +97,7 @@ const saveEnd = () => run(() => setItemEnd(db, props.item.id, new Date(endInput.
     <td class="px-3 py-2 whitespace-nowrap">
       <TimeLeft :view="view" class="text-sm" />
       <div class="text-xs text-slate-500">{{ endLabel }}</div>
+      <div v-if="beforeStart" class="text-xs font-medium text-amber-800">Before bidding starts: never opens</div>
     </td>
     <td class="px-3 py-2">
       <div class="flex flex-wrap gap-1">

@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth.js'
 import { useAuctionStore } from '../stores/auction.js'
 import { useNow } from '../stores/clock.js'
 import { viewFor, matchesFilter } from '../lib/itemView.js'
-import { notStartedYet, startOf, formatStart, formatRemaining } from '../lib/auction.js'
+import { notStartedYet, startOf, formatStart, formatRemaining, biddingClosed } from '../lib/auction.js'
 import { allowedDomainsText } from '../lib/access.js'
 import ItemCard from '../components/ItemCard.vue'
 import BidDialog from '../components/BidDialog.vue'
@@ -90,6 +90,10 @@ const filters = computed(() => [
        refusal during the emergency stop shows its banner; a first-sign-in hiccup doesn't). -->
   <div v-else-if="auth.busy || auth.retrying" class="py-16 text-center text-slate-500" role="status">
     {{ auth.error ? 'Reconnecting…' : 'Signing in…' }}
+    <!-- While retrying, a way out: e.g. to use another account. -->
+    <button v-if="auth.retrying" type="button" class="mt-4 block w-full text-sm text-sky-700 underline-offset-2 hover:underline" @click="auth.signOut()">
+      Sign out
+    </button>
   </div>
 
   <section v-else-if="!auth.signedIn" class="mx-auto max-w-md py-16 text-center">
@@ -97,8 +101,8 @@ const filters = computed(() => [
     <p class="mt-2 text-slate-600">Sign in with your {{ allowedDomainsText() }} Google account to see the items and place bids.</p>
     <button
       type="button"
-      class="mt-6 rounded-md bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-700 disabled:cursor-wait disabled:opacity-70"
-      :disabled="auth.signingIn"
+      class="mt-6 rounded-md bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-700"
+      :title="auth.signingIn ? 'Click to open the Google sign-in window again' : ''"
       @click="auth.signIn()"
     >
       {{ auth.signingIn ? 'Signing in…' : 'Sign in with Google' }}
@@ -118,7 +122,7 @@ const filters = computed(() => [
 
     <template v-else>
       <div
-        v-if="!auction.settings.biddingOpen"
+        v-if="biddingClosed(auction.settings)"
         class="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900"
         role="status"
       >
