@@ -116,9 +116,9 @@ export function collectConsole(page) {
     if (/ERR_INTERNET_DISCONNECTED|transport errored|status of 404/.test(t)) return
     // "Failed to load resource" doesn't name the resource: add its URL (query dropped: tokens).
     const resource = /Failed to load resource/.test(t) ? (m.location()?.url ?? '?').split('?')[0] : ''
-    // Back online after offline mode, Firestore's listen channel can get a 400 for its stale
-    // session before the SDK opens a new one (seen in CI, e2e:bidder; the page recovers).
-    if (/status of 400/.test(t) && resource.endsWith('/google.firestore.v1.Firestore/Listen/channel')) return
+    // Back online after offline mode, Firestore's listen or write channel can get a 400 for
+    // its stale session before the SDK opens a new one (both seen in CI, e2e:bidder; the page recovers).
+    if (/status of 400/.test(t) && /\/google\.firestore\.v1\.Firestore\/(Listen|Write)\/channel$/.test(resource)) return
     errors.push(`${m.type()}: ${t}${resource ? ` [${resource}]` : ''}`)
   })
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
