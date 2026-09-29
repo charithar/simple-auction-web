@@ -113,6 +113,7 @@ items:
 - **Images:** hotlinked images can disappear. Put compressed photos (WebP, around 50–100 KB) in `public/images/` and reference them as `images/lot-0.webp`.
 - **Importing:** Admin → *Import auction file* shows exactly what will be added or changed before anything is written. Bids are kept. The first import leaves bidding **paused**.
 - **Start time (optional):** bidding opens by itself at `startTime`, as long as bidding is switched on. Until then bidders can sign in and browse every item and price; the page shows "Bidding opens at 7:30 PM (in 2h 14m)", cards say "Opens in …", and the bid box appears at the start without a reload. The server's clock decides, so a device with a fast clock can't bid early. You can also set or clear it on the admin page (**Bidding starts**); an import changes it only when the file has one. Every item must close after it.
+- **Closing times without re-importing:** Admin → **Closing times** sets every item's closing time from one schedule (first item closes at …, each next one … later, in lot order), the same as `endTime` + `stagger` in the file. It's for setting up: it only works while no item has bids, and it shows the first and last closing time before you confirm. During the auction, use the per-item controls. Every item must close after the start time.
 - Re-importing during the auction also re-applies the file's closing times, and the preview says so ("closing time ×44"). Change `endTime`/`stagger` in the file first, or use the per-item controls.
 
 ---

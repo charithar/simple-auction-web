@@ -12,6 +12,7 @@ import AdminControls from '../components/admin/AdminControls.vue'
 import AdminImport from '../components/admin/AdminImport.vue'
 import AdminItemRow from '../components/admin/AdminItemRow.vue'
 import AdminResetAll from '../components/admin/AdminResetAll.vue'
+import AdminSchedule from '../components/admin/AdminSchedule.vue'
 
 const auth = useAuthStore()
 const auction = useAuctionStore()
@@ -153,6 +154,7 @@ async function exportBids(kind) {
         :settings="auction.settings"
         :class="{ 'lg:col-span-2': !auction.settings }"
       />
+      <AdminSchedule v-if="auction.settings && items.length" :items="items" :settings="auction.settings" />
       <AdminResetAll v-if="auction.settings && items.length" :items="items" :settings="auction.settings" />
     </div>
 

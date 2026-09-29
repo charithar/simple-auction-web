@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv } from '../../src/lib/admin.js'
+import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv, planSchedule, currentSchedule } from '../../src/lib/admin.js'
 
 const ts = (ms) => ({ toMillis: () => ms })
 const END = Date.UTC(2030, 5, 1, 12)
@@ -11,6 +11,43 @@ const dbItem = (over = {}) => ({
   ...fileItem(), endTime: ts(END), currentAmount: 100, bidCount: 0, highBidderUid: null, lastBidAt: null, ...over,
 })
 const settings = { title: 'T', minIncrement: 50, maxIncrement: null, antiSnipeSeconds: 120 }
+
+describe('closing schedule (setup)', () => {
+  const NOW = END - 86_400_000
+  const lots = [dbItem({ id: 'item-002', order: 2 }), dbItem({ id: 'item-000', order: 0 }), dbItem({ id: 'item-001', order: 1 })]
+
+  it('closes the lots in lot order, a gap apart', () => {
+    expect(planSchedule(lots, END, 60_000, settings, NOW)).toEqual({ ends: [
+      { id: 'item-000', order: 0, end: END }, { id: 'item-001', order: 1, end: END + 60_000 }, { id: 'item-002', order: 2, end: END + 120_000 },
+    ] })
+    expect(planSchedule(lots, END, 0, settings, NOW).ends.map((e) => e.end)).toEqual([END, END, END]) // no gap: all at once
+  })
+
+  it('only before any bids', () => {
+    expect(planSchedule([...lots, dbItem({ id: 'item-003', order: 3, bidCount: 2 })], END, 60_000, settings, NOW).error)
+      .toBe('Only before any bids: 1 item(s) already have bids. Use the per-item controls, or reset all bids first.')
+  })
+
+  it('refuses no items, no or past first close, a bad gap, and closing before the start', () => {
+    const err = (...a) => planSchedule(...a).error
+    expect(err([], END, 0, settings, NOW)).toBe('There are no items yet.')
+    expect(err(lots, NaN, 0, settings, NOW)).toBe('Choose when the first item closes.')
+    expect(err(lots, END, null, settings, NOW)).toBe('The gap must look like 30s, 1m or 2h.') // parseDuration refused it
+    expect(err(lots, END, -1, settings, NOW)).toBe('The gap must look like 30s, 1m or 2h.')
+    expect(err(lots, NOW, 0, settings, NOW)).toBe('The first closing time is in the past.')
+    expect(err(lots, END, 0, { ...settings, startTime: ts(END) }, NOW)).toBe('Items must close after bidding starts.')
+    expect(planSchedule(lots, END, 0, { ...settings, startTime: ts(END - 1) }, NOW).ends).toHaveLength(3)
+  })
+
+  it('currentSchedule: the earliest close, and the gap when it is even', () => {
+    const at = (order, end) => dbItem({ id: `item-00${order}`, order, endTime: ts(end) })
+    expect(currentSchedule([at(1, END + 60_000), at(0, END), at(2, END + 120_000)])).toEqual({ firstEnd: END, staggerMs: 60_000 })
+    expect(currentSchedule([at(0, END), at(1, END + 60_000), at(2, END + 60_000)])).toEqual({ firstEnd: END, staggerMs: null })
+    expect(currentSchedule([at(0, END + 60_000), at(1, END)])).toEqual({ firstEnd: END, staggerMs: null }) // out of lot order
+    expect(currentSchedule([at(0, END)])).toEqual({ firstEnd: END, staggerMs: 0 })
+    expect(currentSchedule([])).toEqual({ firstEnd: null, staggerMs: null })
+  })
+})
 
 describe('planImport', () => {
   it('classifies creates, updates, unchanged and missing', () => {

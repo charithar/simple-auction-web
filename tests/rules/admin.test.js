@@ -5,7 +5,7 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp, writeBatch } from 'firebase/firestore'
 import {
   planImport, applyImport, resetItemBids, resetAllBids, extendItem, endItemIn, fetchItemBids, fetchAllBids, updateSettings,
-  createUserCache, setStartTime,
+  createUserCache, setStartTime, planSchedule, setClosingSchedule,
 } from '../../src/lib/admin.js'
 import { placeBid } from '../../src/lib/bids.js'
 import { parseAuctionFile } from '../../src/lib/importItems.js'
@@ -151,6 +151,37 @@ items:${THREE}`)
     expect((await raw(getSettings)).startTime.toMillis()).toBe(start.getTime())
     await importAs('admin', file(THREE)) // no startTime in the file: the current one stays
     expect((await raw(getSettings)).startTime.toMillis()).toBe(start.getTime())
+  })
+})
+
+describe('closing schedule (setup)', () => {
+  const first = Date.now() + 2 * 3_600_000
+  const endsOf = async () => (await raw(listItems)).map((it) => [it.id, it.endTime.toMillis()])
+
+  it('the admin sets every closing time in lot order; bidders cannot', async () => {
+    await importAs('admin', file(THREE))
+    const { ends } = planSchedule(await raw(listItems), first, 120_000, await raw(getSettings))
+    await assertFails(setClosingSchedule(db('alice'), ends))
+    expect(await setClosingSchedule(db('admin'), ends)).toBe(3)
+    expect(await endsOf()).toEqual([['item-001', first], ['item-002', first + 120_000], ['item-003', first + 240_000]])
+  })
+
+  it('a bid landing after the plan: nothing changes', async () => {
+    await importAs('admin', file(THREE))
+    const before = await endsOf()
+    const { ends } = planSchedule(await raw(listItems), first, 60_000, await raw(getSettings))
+    await raw((fs) => updateSettings(fs, { biddingOpen: true }))
+    await placeBid(db('alice'), { itemId: 'item-003', uid: 'alice', amount: 300, settings: await raw(getSettings) })
+    await expect(setClosingSchedule(db('admin'), ends)).rejects.toThrow('An item got a bid in the meantime: closing times were not changed.')
+    expect(await endsOf()).toEqual(before)
+  })
+
+  it('an item deleted since the plan is skipped', async () => {
+    await importAs('admin', file(THREE))
+    const { ends } = planSchedule(await raw(listItems), first, 0, await raw(getSettings))
+    await raw((fs) => deleteDoc(doc(fs, 'items/item-002')))
+    expect(await setClosingSchedule(db('admin'), ends)).toBe(2)
+    expect(await endsOf()).toEqual([['item-001', first], ['item-003', first]])
   })
 })
 

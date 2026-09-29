@@ -162,6 +162,13 @@ export function parseDuration(v) {
   return Number(m[1]) * { s: 1000, m: 60_000, h: 3_600_000 }[(m[2] ?? 's').toLowerCase()]
 }
 
+// The other way round, for showing a gap in an input: 60000 -> "1m", 90000 -> "90s".
+export function formatDuration(ms) {
+  if (ms % 3_600_000 === 0 && ms > 0) return `${ms / 3_600_000}h`
+  if (ms % 60_000 === 0 && ms > 0) return `${ms / 60_000}m`
+  return `${Math.round(ms / 1000)}s`
+}
+
 const fail = (errors) => ({ settings: null, items: [], errors })
 const toDate = (v) => {
   const d = new Date(v) // js-yaml v5 returns timestamps as strings

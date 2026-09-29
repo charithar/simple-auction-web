@@ -120,12 +120,12 @@ export async function applyImport(db, plan, { removeMissing = false } = {}) {
 
 export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction'), patch, { merge: true })
 
-// Emergency stop: while settings/killswitch exists the rules refuse everyone
-// but admins (see firestore.rules live()).
 // The global start (null clears it): with bidding switched on, bids are accepted from then.
 export const setStartTime = (db, date) =>
   updateSettings(db, { startTime: date ? Timestamp.fromDate(date) : null })
 
+// Emergency stop: while settings/killswitch exists the rules refuse everyone
+// but admins (see firestore.rules live()).
 export const setKillSwitch = (db, on) => {
   const ref = doc(db, 'settings', 'killswitch')
   return on ? setDoc(ref, { since: serverTimestamp() }) : deleteDoc(ref)
@@ -144,6 +144,50 @@ export const setItemEnd = (db, itemId, date) => writeEnd(db, itemId, Timestamp.f
 // Sets the closing time to `ms` from now (e.g. to try anti-sniping). A bid in the
 // last antiSnipeSeconds still keeps the item open past it, as in a real close.
 export const endItemIn = (db, itemId, ms, now = Date.now()) => writeEnd(db, itemId, Timestamp.fromMillis(now + ms))
+
+// Setting up the auction: every item's closing time from one schedule, in lot
+// order: the first closes at `firstEnd` (ms), each next one `staggerMs` later
+// (like auction.endTime and stagger in the file). Only before any bids: the
+// closing time is part of the terms bidders see. Pure: { ends: [{ id, order, end }] }
+// or { error }.
+export function planSchedule(items, firstEnd, staggerMs, settings, now = Date.now()) {
+  if (!items.length) return { error: 'There are no items yet.' }
+  const withBids = items.filter((it) => it.bidCount > 0)
+  if (withBids.length) {
+    return { error: `Only before any bids: ${withBids.length} item(s) already have bids. Use the per-item controls, or reset all bids first.` }
+  }
+  if (!Number.isFinite(firstEnd)) return { error: 'Choose when the first item closes.' }
+  if (!Number.isInteger(staggerMs) || staggerMs < 0) return { error: 'The gap must look like 30s, 1m or 2h.' }
+  if (firstEnd <= now) return { error: 'The first closing time is in the past.' }
+  const start = toMillis(settings.startTime)
+  if (start != null && firstEnd <= start) return { error: 'Items must close after bidding starts.' }
+  const ends = [...items].sort((a, b) => a.order - b.order).map((it, i) => ({ id: it.id, order: it.order, end: firstEnd + i * staggerMs }))
+  return { ends }
+}
+
+// The schedule the items follow now, to pre-fill the form: the first (earliest)
+// closing time, and the gap between lots when it is the same all the way (else null).
+export function currentSchedule(items) {
+  if (!items.length) return { firstEnd: null, staggerMs: null }
+  const ends = [...items].sort((a, b) => a.order - b.order).map((it) => toMillis(it.endTime))
+  const gaps = ends.slice(1).map((e, i) => e - ends[i])
+  const even = gaps.every((g) => g === gaps[0] && g >= 0)
+  return { firstEnd: Math.min(...ends), staggerMs: even ? (gaps[0] ?? 0) : null }
+}
+
+// Writes a planned schedule in one transaction, re-checking that no item got a
+// bid since the plan (admin writes skip the bid rules). Returns the item count.
+export function setClosingSchedule(db, ends) {
+  return runTransaction(db, async (tx) => {
+    const refs = ends.map((e) => doc(db, 'items', e.id))
+    const snaps = await Promise.all(refs.map((r) => tx.get(r)))
+    if (snaps.some((s) => (s.data()?.bidCount ?? 0) > 0)) {
+      throw new Error('An item got a bid in the meantime: closing times were not changed.')
+    }
+    refs.forEach((r, i) => snaps[i].exists() && tx.update(r, { endTime: Timestamp.fromMillis(ends[i].end) }))
+    return snaps.filter((s) => s.exists()).length
+  })
+}
 
 // Deletes all bids on an item and restores its starting price.
 // Only safe while bidding is paused: a bid landing mid-reset would leave an

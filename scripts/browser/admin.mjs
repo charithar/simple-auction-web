@@ -41,6 +41,9 @@ try {
   await sleep(1000)
   await page.screenshot({ path: `${OUT}/admin.png` })
   check(/Items\s*\d+/.test(await page.$eval('dl', (e) => e.innerText)), 'stats render')
+  const schedulePanel = () => page.evaluate(() =>
+    [...document.querySelectorAll('section')].find((s) => s.innerText.includes('Closing times')).innerText)
+  check(/Only before any bids: \d+ item\(s\) already have bids/.test(await schedulePanel()), 'closing times: refused while items have bids')
 
   // Bid history of lot 0 (the smoke test bids there).
   await page.evaluate(() => document.querySelector('tbody button[aria-expanded]').click())
@@ -155,6 +158,28 @@ try {
   await waitForText(page, 'Reset done:', 15_000)
   const noBids = await page.$$eval('tbody > tr', (trs) => trs.every((r) => /No bids/.test(r.innerText)))
   check(noBids, 'reset all bids: every item is back to "No bids"')
+
+  // Closing times (setup): no bids now, so one schedule sets every item, in lot order.
+  const firstClose = new Date(Math.ceil((Date.now() + 3 * 3_600_000) / 60_000) * 60_000)
+  const p2 = (n) => String(n).padStart(2, '0')
+  const local = `${firstClose.getFullYear()}-${p2(firstClose.getMonth() + 1)}-${p2(firstClose.getDate())}T${p2(firstClose.getHours())}:${p2(firstClose.getMinutes())}`
+  const type = (sel, value) => page.$eval(sel, (el, v) => {
+    el.value = v
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }, value)
+  await type('#schedule-first', local)
+  await type('#schedule-gap', '2m')
+  await sleep(300)
+  check(/Lot 0 closes .+, lot \d+ \(the last\)/.test(await schedulePanel()), 'closing times: the preview names the first and last lot')
+  await clickText(page, 'button', 'Set closing times')
+  await sleep(200)
+  await clickText(page, 'button', 'closing times?')
+  await waitForText(page, 'Closing times set for', 10_000)
+  const docs = (await (await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/items?pageSize=100',
+    { headers: { Authorization: 'Bearer owner' } })).json()).documents
+  const ends = docs.map((d) => [Number(d.fields.order.integerValue), Date.parse(d.fields.endTime.timestampValue)]).sort((a, b) => a[0] - b[0])
+  check(ends.every(([, end], i) => end === firstClose.getTime() + i * 120_000),
+    `closing times: ${ends.length} items set 2 min apart in lot order, from ${firstClose.toLocaleTimeString()}`)
 
   await clickText(page, 'nav a', 'Items')
   await waitForText(page, 'Bidding is currently closed', 5000)

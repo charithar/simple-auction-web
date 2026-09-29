@@ -8,6 +8,7 @@ Why the app is the way it is. Read this before changing behaviour that looks odd
 - **The leading bidder may raise their own bid** (no "you're already winning" block). Considered and kept.
 - **Pseudonymous history is accepted.** Anyone watching an item can follow its bids as amount + leader uid pairs; names and emails are never exposed to bidders.
 - **Start time**: one optional start for the whole auction (not per item: items already close in a staggered order and open together). Bidders see everything, prices included, before it. It combines with the switch (both must allow bidding), so the owner can switch on early and not be at the keyboard at the start; opening costs no reads.
+- **Closing times from the admin page are for setup only** (the owner's choice): one schedule for all items while no item has bids; during the auction only the per-item controls. The closing time stays on each item (a global end in settings would need a rules change and clash with stagger and anti-snipe extensions). Changing 20 items costs 1 read per changed item per open page, the same as re-importing the file.
 - **Anti-sniping**: a bid in the last `antiSnipeSeconds` (120 s in the sample) keeps the item open until that long after the bid. "End in 2m" on the admin page exists to try it.
 - **Bidding window**: about 30 minutes, ~600 bids, ~100 bidders online at once, all items open for bidding at the same time.
 - **No backend.** No Cloud Functions or Storage: all enforcement is in the rules; alerts and notifications are client-side (the tab must stay open for notifications).

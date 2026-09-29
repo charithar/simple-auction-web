@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAuctionFile, parseDuration } from '../../src/lib/importItems.js'
+import { parseAuctionFile, parseDuration, formatDuration } from '../../src/lib/importItems.js'
 
 // Validation paths of the auction file not covered by importItems.test.js.
 const errorsOf = (text) => parseAuctionFile(text).errors
@@ -80,6 +80,14 @@ describe('parseAuctionFile: items', () => {
       'items[0] (id 1): endTime must be an ISO 8601 date',
       'items[0] (id 1): images must be a list of URLs',
     ])
+  })
+})
+
+describe('formatDuration', () => {
+  it.each([[3_600_000, '1h'], [7_200_000, '2h'], [60_000, '1m'], [90_000, '90s'], [5_400_000, '90m'], [0, '0s']])(
+    '%i ms → %s', (ms, text) => expect(formatDuration(ms)).toBe(text))
+  it('round-trips through parseDuration', () => {
+    for (const ms of [0, 30_000, 60_000, 90_000, 3_600_000]) expect(parseDuration(formatDuration(ms))).toBe(ms)
   })
 })
 
