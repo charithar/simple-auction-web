@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { db } from '../firebase.js'
-import { formatMoney, increments, formatStart, startOf } from '../lib/auction.js'
+import { formatMoney, increments, formatStart, startOf, formatWindow } from '../lib/auction.js'
 import { placeBid, bidErrorMessage, BidError, outbidNotice } from '../lib/bids.js'
 import { viewFor, initialBidText } from '../lib/itemView.js'
 import { useAuctionStore } from '../stores/auction.js'
@@ -26,9 +26,15 @@ const imageIndex = ref(0)
 const amountText = ref('')
 const submitting = ref(false)
 const message = ref(null) // { kind: 'error' | 'success', text }
+// After a bid: the notification offer (askNotify) and its result.
+const canAskNotify = ref(false)
+const notifyNote = ref('')
 // "Bid placed" goes stale when someone else takes the lead while the dialog is
 // open: show that the bidder has been outbid instead (live price and minimum).
+// Once the item has closed, the result shows on its badge (won / not won); a bid
+// message or outbid notice inviting another bid would contradict "closed".
 const shownMessage = computed(() => {
+  if (view.value?.ended) return null
   const it = item.value
   if (message.value?.kind === 'success' && it?.highBidderUid != null && it.highBidderUid !== auth.user?.uid) {
     return { kind: 'error', text: outbidNotice(it, auction.settings) }
@@ -76,11 +82,13 @@ watch(
     if (id) {
       amountText.value = initialBidText(view.value)
       await nextTick()
-      if (!dialog.value.open) dialog.value.showModal()
+      if (props.itemId === id && dialog.value && !dialog.value.open) dialog.value.showModal()
     } else if (dialog.value?.open) {
       dialog.value.close()
     }
   },
+  // Also for the item already in the URL when the page loads (a reload, a shared link).
+  { immediate: true },
 )
 
 // Someone else bid while the dialog is open: raise a now-too-low suggestion.
@@ -104,8 +112,6 @@ function onClose() {
 
 // After a bid: offer a browser notification for when this bidder is outbid while
 // the tab is in the background (HomeView's useOutbidAlerts sends it).
-const canAskNotify = ref(false)
-const notifyNote = ref('')
 async function askNotify() {
   canAskNotify.value = false
   const permission = await Notification.requestPermission()
@@ -143,6 +149,7 @@ async function submit() {
 
 <template>
   <dialog
+    id="bid-dialog"
     ref="dialog"
     class="m-auto w-[calc(100%-1rem)] max-w-3xl rounded-xl p-0 shadow-2xl backdrop:bg-slate-900/60"
     @close="onClose"
@@ -235,7 +242,7 @@ async function submit() {
             </div>
             <p class="text-xs text-slate-500">
               Minimum {{ money(view.minBid) }}<template v-if="view.maxBid != null">, maximum {{ money(view.maxBid) }}</template>.
-              Bids in the last {{ Math.round(auction.settings.antiSnipeSeconds / 60) }} min extend the closing time.
+              Bids in the last {{ formatWindow(auction.settings.antiSnipeSeconds) }} extend the closing time.
             </p>
             <p v-if="amountProblem" class="text-sm text-rose-600">{{ amountProblem }}</p>
             <p v-if="!online" class="text-sm text-amber-800">You're offline. Reconnect to place a bid.</p>
@@ -251,6 +258,7 @@ async function submit() {
           <p
             v-if="shownMessage"
             role="status"
+            data-bid-message
             :class="shownMessage.kind === 'error' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'"
             class="mt-3 rounded-md px-3 py-2 text-sm"
           >

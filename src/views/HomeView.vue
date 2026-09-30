@@ -56,7 +56,9 @@ const counts = computed(() => {
 })
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-const { toasts, dismiss } = useOutbidAlerts(rows, openItem)
+// While an item's dialog is open, toasts wait (no 10 s countdown) and are shown inside
+// it: a modal dialog makes everything outside it unclickable, behind its backdrop.
+const { toasts, dismiss } = useOutbidAlerts(rows, openItem, () => openItemId.value != null)
 
 const visible = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -201,7 +203,9 @@ const filters = computed(() => [
       </div>
 
       <BidDialog :item-id="openItemId" :now="now" @close="closeItem" />
-      <OutbidToasts :toasts="toasts" @open="openItem" @dismiss="dismiss" />
+      <Teleport defer to="#bid-dialog" :disabled="!openItemId">
+        <OutbidToasts :toasts="toasts" @open="openItem" @dismiss="dismiss" />
+      </Teleport>
     </template>
   </template>
 </template>

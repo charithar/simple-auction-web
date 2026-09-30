@@ -32,10 +32,23 @@ try {
   await page.screenshot({ path: `${OUT}/bidder-dialog.png` })
   const amount = await page.$eval('#bid-amount', (i) => i.value)
   await page.click('dialog[open] button[type=submit]')
-  await page.waitForSelector('dialog[open] [role=status]', { timeout: 15_000 })
-  const status = await page.$eval('dialog[open] [role=status]', (e) => e.innerText)
+  await page.waitForSelector('dialog[open] [data-bid-message]', { timeout: 15_000 })
+  const status = await page.$eval('dialog[open] [data-bid-message]', (e) => e.innerText)
   check(status.startsWith('Bid placed'), `bid of ${amount}: "${status}"`)
   check(page.url().includes('?item=item-001'), 'open item is in the URL')
+
+  // A reload, and a fresh page opened on the link (e.g. shared), show that item's dialog.
+  await page.reload({ waitUntil: 'networkidle2' })
+  const reopened = await page.waitForFunction(() => /Lot 1\b/.test(document.querySelector('dialog[open]')?.innerText ?? ''),
+    { polling: 250, timeout: 15_000 }).then(() => true, () => false)
+  check(reopened, 'after a reload the open item\'s dialog is back')
+  const link = page.url()
+  const fresh = await browser.newPage()
+  await fresh.goto(link, { waitUntil: 'networkidle2' })
+  const linked = await fresh.waitForFunction(() => /Lot 1\b/.test(document.querySelector('dialog[open]')?.innerText ?? ''),
+    { polling: 250, timeout: 15_000 }).then(() => true, () => false)
+  check(linked, 'a fresh page opened on the item link shows its dialog')
+  await fresh.close()
 
   await page.keyboard.press('Escape')
   await sleep(500)

@@ -36,10 +36,10 @@ afterEach(() => {
 
 // Like HomeView: the grid starts empty and `initial` is the first data, which
 // becomes the baseline.
-async function setup(initial) {
+async function setup(initial, hold) {
   const rows = ref([])
   const openItem = vi.fn()
-  const alerts = useOutbidAlerts(rows, openItem)
+  const alerts = useOutbidAlerts(rows, openItem, hold)
   const set = async (list) => {
     rows.value = list
     await nextTick()
@@ -78,6 +78,37 @@ describe('useOutbidAlerts', () => {
     dismiss(toasts.value[1].id)
     expect(toasts.value.map((t) => t.itemId)).toEqual(['a'])
     vi.advanceTimersByTime(5_000)
+    expect(toasts.value).toEqual([])
+  })
+
+  it('while a dialog is open (hold), toasts wait; once it closes they get a full 10 s', async () => {
+    const hold = ref(true)
+    const { toasts, set } = await setup([row(item('a'), 'winning')], hold)
+    await set([row(item('a'), 'outbid')])
+    vi.advanceTimersByTime(60_000)
+    expect(toasts.value.map((t) => t.itemId)).toEqual(['a']) // still there: no countdown while busy
+    hold.value = false
+    await nextTick()
+    vi.advanceTimersByTime(9_999)
+    expect(toasts.value).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(toasts.value).toEqual([])
+  })
+
+  it('opening a dialog stops a running countdown; closing it starts a fresh one', async () => {
+    const hold = ref(false)
+    const { toasts, set } = await setup([row(item('a'), 'winning')], hold)
+    await set([row(item('a'), 'outbid')])
+    vi.advanceTimersByTime(8_000)
+    hold.value = true
+    await nextTick()
+    vi.advanceTimersByTime(30_000)
+    expect(toasts.value).toHaveLength(1)
+    hold.value = false
+    await nextTick()
+    vi.advanceTimersByTime(9_000)
+    expect(toasts.value).toHaveLength(1) // a fresh 10 s, not the 2 s that were left
+    vi.advanceTimersByTime(1_000)
     expect(toasts.value).toEqual([])
   })
 

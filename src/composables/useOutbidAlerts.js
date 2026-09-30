@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { ref, watch, toValue } from 'vue'
 import { formatMoney } from '../lib/auction.js'
 import { standings, newlyOutbid } from '../lib/myBids.js'
 
@@ -26,18 +26,35 @@ export function showTestNotification() {
 // (hidden tab, or another window in front) and allowed notifications (BidDialog
 // offers it after a bid). No backend: the tab has to stay open.
 // rows: computed grid rows ([{ item, view }]); openItem(id) opens the bid dialog.
-export function useOutbidAlerts(rows, openItem) {
+// hold: a ref or getter, true while the bidder is busy in a dialog: toasts then
+// stay (no 10 s countdown) and get a full 10 s once it closes, so "Bid again" isn't
+// gone before they can use it.
+export function useOutbidAlerts(rows, openItem, hold = () => false) {
   const toasts = ref([]) // [{ id, itemId, text }]
+  const timers = new Map() // toast id → timeout
   let before = null
   let seq = 0
 
-  const dismiss = (id) => (toasts.value = toasts.value.filter((t) => t.id !== id))
+  const dismiss = (id) => {
+    clearTimeout(timers.get(id))
+    timers.delete(id)
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+  }
+  const countDown = (id) => timers.set(id, setTimeout(() => dismiss(id), TOAST_MS))
+  watch(hold, (holding) => {
+    for (const t of toasts.value) {
+      clearTimeout(timers.get(t.id))
+      timers.delete(t.id)
+      if (!holding) countDown(t.id)
+    }
+  })
 
   function alert(item) {
     const text = `Outbid on ${item.title}: the price is now ${formatMoney(item.currency, item.currentAmount)}.`
     const id = ++seq
-    toasts.value = [...toasts.value.filter((t) => t.itemId !== item.id), { id, itemId: item.id, text }]
-    setTimeout(() => dismiss(id), TOAST_MS)
+    toasts.value.filter((t) => t.itemId === item.id).forEach((t) => dismiss(t.id))
+    toasts.value = [...toasts.value, { id, itemId: item.id, text }]
+    if (!toValue(hold)) countDown(id)
     if (notLooking() && notificationsSupported() && Notification.permission === 'granted') {
       const n = new Notification('You were outbid', { body: text, tag: item.id })
       n.onclick = () => {

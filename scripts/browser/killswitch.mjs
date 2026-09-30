@@ -54,8 +54,8 @@ try {
   await bidder.waitForSelector('dialog[open] #bid-amount')
   await bidder.waitForFunction(() => /^\d+$/.test(document.querySelector('#bid-amount')?.value ?? ''), { polling: 250, timeout: 10_000 })
   await bidder.click('dialog[open] button[type=submit]')
-  await bidder.waitForSelector('dialog[open] [role=status]', { timeout: 20_000 })
-  const msg = await bidder.$eval('dialog[open] [role=status]', (e) => e.innerText)
+  await bidder.waitForSelector('dialog[open] [data-bid-message]', { timeout: 20_000 })
+  const msg = await bidder.$eval('dialog[open] [data-bid-message]', (e) => e.innerText)
   check(msg === 'The auction is temporarily unavailable. Please try again later.', `a bid from an open page is refused: "${msg}"`)
   await bidder.keyboard.press('Escape')
 

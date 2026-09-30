@@ -92,6 +92,9 @@ const fail = (code, message) => ({ ok: false, code, message })
 export const formatMoney = (currency, amount) =>
   `${currency ?? ''} ${Number(amount).toLocaleString('en-US')}`.trim()
 
+// The anti-snipe window for bidders: "2 min" for whole minutes, else "30 s" / "90 s".
+export const formatWindow = (seconds) => (seconds % 60 === 0 && seconds > 0 ? `${seconds / 60} min` : `${seconds} s`)
+
 export const formatRemaining = (ms) => {
   if (ms <= 0) return 'Ended'
   const s = Math.floor(ms / 1000)

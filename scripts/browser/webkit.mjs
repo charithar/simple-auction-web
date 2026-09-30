@@ -41,7 +41,7 @@ try {
   await cards.filter({ hasText: /Lot 7(\D|$)/ }).tap()
   await page.waitForFunction(() => /^\d+$/.test(document.querySelector('dialog[open] #bid-amount')?.value ?? ''), null, { timeout: 10_000 })
   await page.locator('dialog[open] button[type=submit]').tap()
-  const status = page.locator('dialog[open] [role=status]')
+  const status = page.locator('dialog[open] [data-bid-message]')
   await status.waitFor({ timeout: 15_000 })
   const placed = await status.innerText()
   check(/^Bid placed/.test(placed), `a tap places the bid: "${placed}"`)
@@ -50,7 +50,7 @@ try {
   const rivalBidder = await rival()
   const amount = await rivalBidder.bid('item-007')
   const price = `Rs. ${amount.toLocaleString('en-US')}`
-  await page.waitForFunction((p) => document.querySelector('dialog[open] [role=status]')?.innerText.includes(`The price is now ${p}`),
+  await page.waitForFunction((p) => document.querySelector('dialog[open] [data-bid-message]')?.innerText.includes(`The price is now ${p}`),
     price, { timeout: 10_000 })
   check(/^You've been outbid\./.test(await status.innerText()), `the open dialog says "You've been outbid" (price now ${price})`)
   check(/Outbid on .+: the price is now/.test(await text()), 'the outbid toast appears')

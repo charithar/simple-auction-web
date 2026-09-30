@@ -38,8 +38,8 @@ async function openLot(page, n) {
 
 async function bid(page) {
   await page.click('dialog[open] button[type=submit]')
-  await page.waitForSelector('dialog[open] [role=status]', { timeout: 15_000 })
-  return page.$eval('dialog[open] [role=status]', (e) => e.innerText)
+  await page.waitForSelector('dialog[open] [data-bid-message]', { timeout: 15_000 })
+  return page.$eval('dialog[open] [data-bid-message]', (e) => e.innerText)
 }
 
 const text = (page) => page.evaluate(() => document.querySelector('main').innerText)
@@ -103,20 +103,36 @@ try {
   await openLot(A.page, LOT2)
   const ra2 = await bid(A.page)
   check(/^Bid placed/.test(ra2), `A bids on lot ${LOT2} and keeps the dialog open: "${ra2}"`)
-  const status = () => A.page.$eval('dialog[open] [role=status]', (e) => ({ text: e.innerText, red: /rose/.test(e.className) }))
+  const status = () => A.page.$eval('dialog[open] [data-bid-message]', (e) => ({ text: e.innerText, red: /rose/.test(e.className) }))
   for (const round of [1, 2]) {
     await openLot(B.page, LOT2)
     const rb2 = await bid(B.page)
     await B.page.keyboard.press('Escape')
-  await sleep(300)
     await sleep(300)
     const price = rb2.match(/Rs\. [\d,]+/)?.[0]
-    await A.page.waitForFunction((p) => document.querySelector('dialog[open] [role=status]')?.innerText.includes(`The price is now ${p}`),
+    await A.page.waitForFunction((p) => document.querySelector('dialog[open] [data-bid-message]')?.innerText.includes(`The price is now ${p}`),
       { polling: 250, timeout: 10_000 }, price)
     const s2 = await status()
     check(s2.red && /^You've been outbid\. The price is now Rs\. [\d,]+; the minimum bid is Rs\. [\d,]+\.$/.test(s2.text),
       `B outbids A (round ${round}): A's open dialog says "${s2.text}"`)
   }
+
+  // A is still in lot ${LOT2}'s dialog: the outbid toast shows inside it (a modal dialog makes
+  // everything outside it unclickable), is really clickable, and doesn't vanish while A is busy.
+  const dialogToast = () => A.page.evaluate(() => {
+    const button = [...document.querySelectorAll('dialog[open] [aria-live] button')].find((b) => b.innerText === 'Bid again')
+    if (!button) return null
+    const r = button.getBoundingClientRect()
+    return { clickable: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === button }
+  })
+  const inDialog = await dialogToast()
+  check(inDialog?.clickable === true, `the outbid toast shows inside the open dialog and "Bid again" is clickable (${JSON.stringify(inDialog)})`)
+  await sleep(11_000)
+  check(!!(await dialogToast()), 'while the dialog stays open the toast stays (no 10 s countdown)')
+  await A.page.keyboard.press('Escape')
+  await sleep(500)
+  const outside = await A.page.evaluate(() => !document.querySelector('dialog[open]') && !!document.querySelector('[aria-live] [role=status]'))
+  check(outside, 'after closing the dialog the toast is still there, back on the page')
 
   const errors = [...A.errors, ...B.errors].filter((e) => !/403|permission-denied/.test(e))
   check(errors.length === 0, `no console errors${errors.length ? `: ${errors.slice(0, 3).join(' | ')}` : ''}`)

@@ -118,10 +118,26 @@ try {
   check(await page.evaluate((s) => [...document.querySelectorAll('tbody > tr')][0].querySelector(s).disabled, resetBtn),
     'reset is disabled while bidding is open')
 
+  // "Pause with a message": typed but not saved, then Pause; pausing saves it too.
+  const PAUSE_MESSAGE = 'Back in 10 minutes'
+  await page.$eval('#banner-message', (el, v) => {
+    el.value = v
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }, PAUSE_MESSAGE)
+  await sleep(200)
+  check(/Not saved yet/.test(await page.evaluate(() => document.body.innerText)), 'a typed message shows "Not saved yet"')
   await clickText(page, 'section button', 'Pause bidding')
-  await clickText(page, 'section button', 'Pause for everyone?')
+  await clickText(page, 'section button', 'Pause with this message?')
   await waitForText(page, 'Paused', 5000)
   check(true, 'bidding paused (two-step confirm)')
+  let savedMessage
+  for (let t = 0; t < 40 && savedMessage !== PAUSE_MESSAGE; t++) {
+    await sleep(250)
+    const s = await (await fetch('http://127.0.0.1:8080/v1/projects/demo-auction/databases/(default)/documents/settings/auction',
+      { headers: { Authorization: 'Bearer owner' } })).json()
+    savedMessage = s.fields?.message?.stringValue
+  }
+  check(savedMessage === PAUSE_MESSAGE, `pausing saved the typed message ("${savedMessage}")`)
 
   await page.waitForFunction((s) => ![...document.querySelectorAll('tbody > tr')][0].querySelector(s).disabled, { polling: 250, timeout: 20_000 }, resetBtn)
   await firstRowButton(resetBtn)
@@ -183,7 +199,7 @@ try {
 
   await clickText(page, 'nav a', 'Items')
   await waitForText(page, 'Bidding is currently closed', 5000)
-  check(true, 'bidder page shows the paused banner')
+  check((await page.evaluate(() => document.body.innerText)).includes(PAUSE_MESSAGE), 'bidder page shows the paused banner with that message')
 } catch (e) {
   check(false, `unexpected failure: ${e.message}`)
   await page.screenshot({ path: `${OUT}/admin-error.png` }).catch(() => {})

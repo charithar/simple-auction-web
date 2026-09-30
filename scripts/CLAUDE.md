@@ -16,7 +16,7 @@ Headless Chrome via puppeteer-core (the local Chrome; `CHROME_PATH` to override)
 
 - **All at once:** `npm run e2e:all` (starts the emulators via `firebase emulators:exec`, needs Java; what CI runs) or `npm run e2e:run` (emulators already running, e.g. `emulators:docker`). `run-all.mjs` seeds `data/auction.sample.yml` (8 lots; the same everywhere; `AUCTION_FILE` tells `e2e:admin`), runs `smoke -- --users 6`, grants `smoke0` admin, starts the dev server on 127.0.0.1:5173, reseeds before each script (which also clears any start time), runs them in order and stops the server. `E2E_SKIP=webkit,timing` skips scripts.
 - **Scripts** (one at a time: emulators running, then `npm run seed`, `npm run smoke`, `npm run dev`):
-  - `e2e:bidder`: no sign-in page between the click and the grid (`signIn` returns the page states it saw), grid, every card priced, bidding, dialog/URL, filters, phone width, offline banner.
+  - `e2e:bidder`: a reload and a fresh page on `?item=` reopen that item's dialog; no sign-in page between the click and the grid (`signIn` returns the page states it saw), grid, every card priced, bidding, dialog/URL, filters, phone width, offline banner.
   - `e2e:outbid`: two contexts. A bids (notification opt-in and sample), B outbids A: toast, notification with "another app in front", summary, "Bid again"; two rounds with A's dialog open ("You've been outbid").
   - `e2e:phone`: the whole journey at 390x844 with taps.
   - `e2e:webkit`: Safari's engine on an emulated iPhone 13: sign-in popup, bid, outbid in the open dialog, toast.
@@ -35,6 +35,8 @@ Headless Chrome via puppeteer-core (the local Chrome; `CHROME_PATH` to override)
 - Two pages tick their countdowns independently (up to a second apart): after waiting for one page to reach a state, wait for the other too.
 
 - Wait with `{ polling: 250 }`, never animation-frame polling: background pages get no frames.
+- Select the dialog's bid message with `dialog[open] [data-bid-message]`, not `[role=status]`: while a dialog is open the outbid toasts (`[aria-live] [role=status]`) are inside it too.
+- In emulator mode the dev server still reads `.env.local`, so the sign-in page names the real allowed domain: don't print that page's text in logs or reports (checks match specific phrases instead).
 - Wait for the state, never a fixed sleep, when a check depends on the **server**: late in a full run the emulator can take seconds to commit a write (the page shows it at once; admin row buttons stay disabled until it is confirmed). `e2e:admin` polls the REST API for "End in 2m" and waits for buttons to be enabled.
 - `collectConsole` adds the URL to "Failed to load resource" errors and ignores a 400 on Firestore's `Listen/channel` or `Write/channel`: after offline mode a stale channel session can be refused once before the SDK opens a new one (seen in CI). A leftover dev server on port 5173 makes `run-all` fail with `ERR_CONNECTION_REFUSED` (see `dev-server.log`: "Port 5173 is already in use").
 - `smoke -- --users N` creates `smoke0..smoke(N-1)`; the picker lists only accounts that exist.

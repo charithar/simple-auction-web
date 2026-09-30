@@ -16,6 +16,12 @@ const message = ref(props.settings.message ?? '')
 const busy = ref(false)
 const error = ref('')
 watch(() => props.settings.message, (m) => (message.value = m ?? ''))
+// A message typed but not saved yet. Pausing saves it too: "pause with a message"
+// is what the admin means, and bidders would otherwise see the old one.
+const messageUnsaved = computed(() => message.value.trim() !== (props.settings.message ?? ''))
+const toggleBidding = () => save(props.settings.biddingOpen
+  ? { biddingOpen: false, ...(messageUnsaved.value ? { message: message.value.trim() } : {}) }
+  : { biddingOpen: true })
 
 // Optional start time: with bidding switched on, bids are accepted from then
 // (the rules check the server's clock) and bidders' pages open by themselves.
@@ -89,8 +95,8 @@ async function save(patch) {
       <ConfirmButton
         :disabled="busy"
         :danger="settings.biddingOpen"
-        :confirm-label="settings.biddingOpen ? 'Pause for everyone?' : startAhead ? `Open at ${startLabel}?` : 'Open bidding now?'"
-        @confirm="save({ biddingOpen: !settings.biddingOpen })"
+        :confirm-label="settings.biddingOpen ? (messageUnsaved ? 'Pause with this message?' : 'Pause for everyone?') : startAhead ? `Open at ${startLabel}?` : 'Open bidding now?'"
+        @confirm="toggleBidding"
       >
         {{ settings.biddingOpen ? 'Pause bidding' : 'Open bidding' }}
       </ConfirmButton>
@@ -107,12 +113,13 @@ async function save(patch) {
       />
       <button
         type="submit"
-        :disabled="busy || message.trim() === (settings.message ?? '')"
+        :disabled="busy || !messageUnsaved"
         class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
       >
         Save message
       </button>
     </form>
+    <p v-if="messageUnsaved" class="mt-1 text-xs text-amber-800">Not saved yet{{ settings.biddingOpen ? ' (pausing saves it too)' : '' }}.</p>
 
     <form class="mt-4 flex flex-wrap items-center gap-2" @submit.prevent="saveStart">
       <label for="start-time" class="text-sm font-medium">Bidding starts</label>

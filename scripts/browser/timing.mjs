@@ -10,7 +10,7 @@
 // Moves two items' closing times and sets a 30 s anti-snipe window itself
 // (emulator REST; the window is restored afterwards).
 // Prereqs: emulators + `npm run seed` + `npm run smoke` + `npm run dev`.
-import { launch, signIn, waitForText, clickText, checker, sleep, setItemEndIn, setAntiSnipeSeconds, cardInfo } from './helpers.mjs'
+import { launch, signIn, waitForText, clickText, checker, sleep, setItemEndIn, setAntiSnipeSeconds, cardInfo, rival } from './helpers.mjs'
 
 const { check, done } = checker()
 const browser = await launch()
@@ -38,8 +38,8 @@ async function openLot(page, n) {
 async function bidInDialog(page) {
   await page.waitForFunction(() => /^\d+$/.test(document.querySelector('#bid-amount')?.value ?? ''), { polling: 250, timeout: 10_000 })
   await page.click('dialog[open] button[type=submit]')
-  await page.waitForSelector('dialog[open] [role=status]', { timeout: 15_000 })
-  return page.$eval('dialog[open] [role=status]', (e) => e.innerText)
+  await page.waitForSelector('dialog[open] [data-bid-message]', { timeout: 15_000 })
+  return page.$eval('dialog[open] [data-bid-message]', (e) => e.innerText)
 }
 const closeDialog = async (page) => {
   await page.keyboard.press('Escape')
@@ -50,6 +50,7 @@ try {
   antiSnipeBefore = await setAntiSnipeSeconds(ANTI_SNIPE_S)
   const A = await bidder('smoke1@example.com', SKEW_MS)
   const B = await bidder('smoke2@example.com')
+  const R = await rival('smoke3@example.com') // signed in now: it bids quickly later
   await setItemEndIn('item-002', 40_000)
   await setItemEndIn('item-001', 50_000)
   const t0 = Date.now()
@@ -69,6 +70,15 @@ try {
   check(/^Bid placed/.test(rb), `B bids on lot 1: "${rb}"`)
   await closeDialog(B)
   await openLot(B, 2)
+  const rules = await B.$eval('dialog[open]', (d) => d.innerText)
+  check(rules.includes(`Bids in the last ${ANTI_SNIPE_S} s extend the closing time`), `the dialog states the ${ANTI_SNIPE_S} s anti-snipe window in seconds`)
+  // B bids here and is outbid at once, over 30 s before lot 2 closes (so no extension):
+  // B's open dialog shows "You've been outbid", which must go once lot 2 has closed.
+  const rb2 = await bidInDialog(B)
+  await R.bid('item-002')
+  const outbidShown = await B.waitForFunction(() => /You've been outbid/.test(document.querySelector('dialog[open]')?.innerText),
+    { polling: 250, timeout: 10_000 }).then(() => true, () => false)
+  check(/^Bid placed/.test(rb2) && outbidShown, `B bids on lot 2 and is outbid while its dialog stays open (${Math.round((Date.now() - t0) / 1000)} s in)`)
 
   // A waits for the last seconds of lot 1, then outbids B: anti-sniping extends it.
   await A.waitForFunction(() => {
@@ -90,6 +100,8 @@ try {
   await B.waitForFunction(() => /Bidding on this item has closed\./.test(document.querySelector('dialog[open]')?.innerText),
     { polling: 250, timeout: Math.max(5_000, 40_000 - (Date.now() - t0) + 5_000) })
   check(!(await B.$('dialog[open] #bid-amount')), 'lot 2 closes with its dialog open: no bid form, "Bidding on this item has closed."')
+  check(!/You've been outbid|minimum bid/.test(await B.$eval('dialog[open]', (d) => d.innerText)),
+    'the closed dialog no longer invites a bid (the outbid notice with its minimum bid is gone)')
   await closeDialog(B)
 
   // "Open" drops the closed lot 2 but keeps lot 1 (past its scheduled end, but extended).

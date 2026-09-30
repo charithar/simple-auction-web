@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   effectiveEnd, minNextBid, maxNextBid, validateBid, formatRemaining,
-  startOf, notStartedYet, formatStart, toLocalInput, startInvalid, biddingClosed, closingBeforeStart,
+  startOf, notStartedYet, formatStart, toLocalInput, formatWindow, startInvalid, biddingClosed, closingBeforeStart,
 } from '../../src/lib/auction.js'
 
 const settings = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -64,6 +64,12 @@ describe('validateBid', () => {
   })
   it('a pause wins over a start time still ahead', () =>
     expect(v(item(), 5000, { ...settings, biddingOpen: false, startTime: NOW + 1 })).toBe('closed'))
+})
+
+describe('formatWindow', () => {
+  it('whole minutes as min, anything else in seconds', () => {
+    expect([120, 60, 30, 20, 90, 0].map(formatWindow)).toEqual(['2 min', '1 min', '30 s', '20 s', '90 s', '0 s'])
+  })
 })
 
 describe('start time', () => {
