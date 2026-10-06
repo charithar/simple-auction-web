@@ -124,6 +124,35 @@ export const updateSettings = (db, patch) => setDoc(doc(db, 'settings', 'auction
 export const setStartTime = (db, date) =>
   updateSettings(db, { startTime: date ? Timestamp.fromDate(date) : null })
 
+// Raised minimum increment (see firestore.rules escalated()). Whole numbers only,
+// so every minimum stays a whole amount. Defaults: over 125% of the starting
+// price, twice the increment.
+export const ESCALATION_DEFAULTS = { enabled: false, percent: 25, factor: 2 }
+export const ESCALATION_LIMITS = { percent: [1, 1000], factor: [2, 10] }
+
+export function escalationProblem({ percent, factor }) {
+  const [pMin, pMax] = ESCALATION_LIMITS.percent
+  const [fMin, fMax] = ESCALATION_LIMITS.factor
+  if (!Number.isInteger(percent) || percent < pMin || percent > pMax) return `The percentage must be a whole number from ${pMin} to ${pMax}.`
+  if (!Number.isInteger(factor) || factor < fMin || factor > fMax) return `The multiplier must be a whole number from ${fMin} to ${fMax}.`
+  return ''
+}
+
+export function setEscalation(db, { enabled, percent, factor }) {
+  const problem = escalationProblem({ percent, factor })
+  if (problem) return Promise.reject(new Error(problem))
+  return updateSettings(db, { escalation: { enabled: enabled === true, percent, factor } })
+}
+
+// Items whose raised increment is held at their maximum increment: the multiplier
+// would take it past the maximum, which would leave no valid bid.
+export function escalationCapped(items, settings, factor) {
+  return items.filter((it) => {
+    const max = it.maxIncrement ?? settings.maxIncrement ?? null
+    return max != null && (it.minIncrement ?? settings.minIncrement) * factor > max
+  })
+}
+
 // Emergency stop: while settings/killswitch exists the rules refuse everyone
 // but admins (see firestore.rules live()).
 export const setKillSwitch = (db, on) => {

@@ -5,10 +5,12 @@ import {
   initializeTestEnvironment, assertSucceeds, assertFails,
 } from '@firebase/rules-unit-testing'
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, Timestamp, serverTimestamp,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, Timestamp, serverTimestamp,
   collectionGroup, query, where, getDocs, setLogLevel,
 } from 'firebase/firestore'
 import { placeBid } from '../../src/lib/bids.js'
+import { minNextBid, maxNextBid } from '../../src/lib/auction.js'
+import { setEscalation } from '../../src/lib/admin.js'
 import { renderRules, RULES_TEMPLATE } from '../../scripts/build-rules.mjs'
 
 const SETTINGS = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -364,4 +366,137 @@ describe('bid history visibility', () => {
   })
   it('admins can list all bids', () =>
     assertSucceeds(getDocs(collectionGroup(db('admin'), 'bids'))))
+})
+
+describe('raised minimum increment (settings.escalation)', () => {
+  // item1: starting price 5000, increments 50..1000 (settings). Over 25% = above 6250.
+  // item2: its own increments 500..2000.
+  const ESC = { enabled: true, percent: 25, factor: 2 }
+  const setEsc = (escalation) => seed((fs) => updateDoc(doc(fs, 'settings/auction'), { escalation }))
+  const atPrice = (itemId, currentAmount, over = {}) =>
+    seed((fs) => updateDoc(doc(fs, 'items', itemId), { currentAmount, bidCount: 3, highBidderUid: 'alice', ...over }))
+  const bidAt = (itemId, amount) => rawBid(db('bob'), itemId, { n: 4, amount, uid: 'bob' })
+  const undoBid = (itemId, price, over) => Promise.all([
+    atPrice(itemId, price, over),
+    seed((fs) => deleteDoc(doc(fs, 'items', itemId, 'bids', '4'))),
+  ])
+
+  it('nothing changes while it is off or absent', async () => {
+    await atPrice('item1', 7000)
+    await assertSucceeds(bidAt('item1', 7050))
+    await undoBid('item1', 7000)
+    await setEsc({ ...ESC, enabled: false })
+    await assertSucceeds(bidAt('item1', 7050))
+  })
+
+  it('at exactly the threshold the normal increment applies; one above it, the doubled one', async () => {
+    await setEsc(ESC)
+    await atPrice('item1', 6250)
+    await assertSucceeds(bidAt('item1', 6300))
+    await undoBid('item1', 6251)
+    await assertFails(bidAt('item1', 6350))
+    await assertSucceeds(bidAt('item1', 6351))
+  })
+
+  it('placeBid with the raised minimum goes through; the client refuses less before writing', async () => {
+    await setEsc(ESC)
+    await atPrice('item1', 7000)
+    const settings = { ...SETTINGS, escalation: ESC }
+    await expect(placeBid(db('bob'), { itemId: 'item1', uid: 'bob', amount: 7099, settings }))
+      .rejects.toMatchObject({ code: 'too-low', message: 'Minimum bid is Rs. 7,100.' })
+    await assertSucceeds(placeBid(db('bob'), { itemId: 'item1', uid: 'bob', amount: 7100, settings }))
+  })
+
+  it("switched on while a bidder's page still has the old settings: refused, then told the new minimum", async () => {
+    await atPrice('item1', 7000)
+    await setEsc(ESC) // the page hasn't heard yet: it passes SETTINGS without escalation
+    await expect(placeBid(db('bob'), { itemId: 'item1', uid: 'bob', amount: 7050, settings: SETTINGS, seenBidCount: 3 }))
+      .rejects.toMatchObject({ code: 'too-low', message: 'Minimum bid is Rs. 7,100.' })
+    const item = (await getDoc(doc(db('bob'), 'items/item1'))).data()
+    expect(item).toMatchObject({ currentAmount: 7000, bidCount: 3, highBidderUid: 'alice' })
+  })
+
+  it('switched off while a page still shows the raised minimum: a bid at that minimum is still valid', async () => {
+    await atPrice('item1', 7000)
+    await assertSucceeds(placeBid(db('bob'), { itemId: 'item1', uid: 'bob', amount: 7100, settings: { ...SETTINGS, escalation: ESC } }))
+  })
+
+  it('the maximum increment still applies', async () => {
+    await setEsc(ESC)
+    await atPrice('item1', 7000)
+    await assertFails(bidAt('item1', 8001))
+    await assertSucceeds(bidAt('item1', 8000))
+  })
+
+  it('a malformed setting (edited by hand) raises nothing, and bidding carries on', async () => {
+    await atPrice('item1', 7000)
+    const bad = [
+      { ...ESC, enabled: 'true' }, { ...ESC, percent: '25' }, { ...ESC, factor: '2' },
+      { ...ESC, factor: 0 }, { ...ESC, percent: -5 }, { ...ESC, factor: 101 }, { ...ESC, percent: 10001 },
+      { ...ESC, factor: Infinity }, { ...ESC, factor: NaN }, 'on', { enabled: true }, null,
+    ]
+    for (const escalation of bad) {
+      await setEsc(escalation)
+      await assertSucceeds(bidAt('item1', 7050))
+      await undoBid('item1', 7000)
+    }
+  })
+
+  it('an item without a starting price is never raised', async () => {
+    await setEsc(ESC)
+    await seed((fs) => updateDoc(doc(fs, 'items/item1'), { startingPrice: deleteField(), currentAmount: 9000, bidCount: 3 }))
+    await assertSucceeds(bidAt('item1', 9050))
+  })
+
+  it('bidders cannot switch it or change its values', async () => {
+    await assertFails(updateDoc(doc(db('alice'), 'settings/auction'), { escalation: { ...ESC, enabled: false } }))
+    await assertFails(setEscalation(db('alice'), ESC))
+  })
+
+  it('admins set it through setEscalation, merged into the settings', async () => {
+    await assertSucceeds(setEscalation(db('admin'), { enabled: true, percent: 30, factor: 3 }))
+    const s = (await getDoc(doc(db('alice'), 'settings/auction'))).data()
+    expect(s).toEqual({ ...SETTINGS, escalation: { enabled: true, percent: 30, factor: 3 } })
+  })
+
+  // The client mirror must agree with the rules at every boundary: for each case
+  // the client's minimum is accepted and one less refused, its maximum accepted
+  // and one more refused.
+  const PARITY = [
+    ['absent', 'item1', 6300, {}, undefined],
+    ['off', 'item1', 7000, {}, { ...ESC, enabled: false }],
+    ['exactly at the threshold', 'item1', 6250, {}, ESC],
+    ['just over it', 'item1', 6251, {}, ESC],
+    ['admin values: over 10%, x3', 'item1', 5501, {}, { enabled: true, percent: 10, factor: 3 }],
+    ['admin values: exactly 10%', 'item1', 5500, {}, { enabled: true, percent: 10, factor: 3 }],
+    ['x10, under the max increment', 'item1', 7000, {}, { ...ESC, factor: 10 }],
+    ['x30, held at the max increment', 'item1', 7000, {}, { ...ESC, factor: 30 }],
+    ['per-item increments, doubled', 'item2', 7000, {}, ESC],
+    ['per-item increments, held at the item max', 'item2', 7000, {}, { ...ESC, factor: 5 }],
+    ['fractional factor from the console', 'item1', 7000, { minIncrement: 75 }, { ...ESC, factor: 1.5 }],
+    ['percent 0 from the console', 'item1', 5001, {}, { ...ESC, percent: 0 }],
+    ['malformed', 'item1', 7000, {}, { ...ESC, factor: '2' }],
+    ['factor at its upper bound, held at the max', 'item1', 7000, {}, { ...ESC, factor: 100 }],
+    ['factor over its upper bound', 'item1', 7000, {}, { ...ESC, factor: 101 }],
+    ['infinite factor', 'item1', 7000, {}, { ...ESC, factor: Infinity }],
+  ]
+  for (const [label, itemId, price, itemOver, escalation] of PARITY) {
+    it(`rules and client agree: ${label}`, async () => {
+      if (escalation !== undefined) await setEsc(escalation)
+      await atPrice(itemId, price, itemOver)
+      let item, settings
+      await seed(async (fs) => {
+        item = (await getDoc(doc(fs, 'items', itemId))).data()
+        settings = (await getDoc(doc(fs, 'settings/auction'))).data()
+      })
+      const min = minNextBid(item, settings)
+      const max = maxNextBid(item, settings)
+      expect(Number.isInteger(min)).toBe(true)
+      await assertFails(bidAt(itemId, min - 1))
+      await assertFails(bidAt(itemId, max + 1))
+      await assertSucceeds(bidAt(itemId, min))
+      await undoBid(itemId, price, itemOver)
+      await assertSucceeds(bidAt(itemId, max))
+    })
+  }
 })

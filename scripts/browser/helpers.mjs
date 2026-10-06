@@ -12,6 +12,7 @@ import { initializeApp } from 'firebase/app'
 import { getAuth, connectAuthEmulator, GoogleAuthProvider, signInWithCredential } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator, doc, getDoc, setLogLevel } from 'firebase/firestore'
 import { placeBid } from '../../src/lib/bids.js'
+import { minNextBid } from '../../src/lib/auction.js'
 
 export const APP_URL = process.env.APP_URL ?? 'http://127.0.0.1:5173/'
 export const OUT = resolve('test-results/browser')
@@ -181,6 +182,24 @@ export async function setStartValue(value) {
   if (!res.ok) throw new Error(`setStartValue: ${res.status}`)
 }
 
+// Puts an item at `amount` with `bidCount` bids led by `uid` (no bid docs: the next
+// bid is number bidCount + 1, which is all the rules check). Setup for price-based checks.
+export async function setItemPrice(itemId, amount, { bidCount = 1, uid = 'setup' } = {}) {
+  const res = await fetch(`${EMULATOR_DOCS}/items/${itemId}?updateMask.fieldPaths=currentAmount&updateMask.fieldPaths=bidCount&updateMask.fieldPaths=highBidderUid`, {
+    method: 'PATCH', headers: OWNER,
+    body: JSON.stringify({ fields: { currentAmount: { integerValue: String(amount) }, bidCount: { integerValue: String(bidCount) }, highBidderUid: { stringValue: uid } } }),
+  })
+  if (!res.ok) throw new Error(`setItemPrice ${itemId}: ${res.status}`)
+}
+
+// Removes the raised-minimum setting (settings/auction.escalation).
+export async function clearEscalation() {
+  const res = await fetch(`${EMULATOR_DOCS}/settings/auction?updateMask.fieldPaths=escalation`, {
+    method: 'PATCH', headers: OWNER, body: JSON.stringify({ fields: {} }),
+  })
+  if (!res.ok) throw new Error(`clearEscalation: ${res.status}`)
+}
+
 // Turns the emergency stop off (settings/killswitch), e.g. after a failed run.
 export const clearKillSwitch = () => fetch(`${EMULATOR_DOCS}/settings/killswitch`, { method: 'DELETE', headers: OWNER })
 
@@ -198,11 +217,12 @@ export async function rival(email = 'smoke3@example.com') {
   const { user } = await signInWithCredential(auth, GoogleAuthProvider.credential(JSON.stringify({ sub, email, email_verified: true })))
   return {
     uid: user.uid,
-    // Bids one minimum step above the current price (also for a first bid); returns the amount.
-    async bid(itemId) {
+    // Bids one minimum step above the current price (also for a first bid; the raised
+    // step once it applies), or `amount`; returns the amount.
+    async bid(itemId, { amount: fixed } = {}) {
       const settings = (await getDoc(doc(db, 'settings', 'auction'))).data()
       const item = (await getDoc(doc(db, 'items', itemId))).data()
-      const amount = item.currentAmount + (item.minIncrement ?? settings.minIncrement)
+      const amount = fixed ?? minNextBid({ ...item, bidCount: Math.max(item.bidCount, 1) }, settings)
       await placeBid(db, { itemId, uid: user.uid, amount, settings, seenBidCount: item.bidCount })
       return amount
     },

@@ -9,10 +9,32 @@ export const toMillis = (t) => {
   return null
 }
 
-export const increments = (item, settings) => ({
-  min: item.minIncrement ?? settings.minIncrement,
-  max: item.maxIncrement ?? settings.maxIncrement ?? null,
-})
+// Raised minimum increment (settings.escalation, set on the admin page): while
+// enabled, an item whose price is over `percent`% above its starting price needs
+// `factor` times its minimum increment. A malformed setting raises nothing
+// (firestore.rules escalated(), with the same bounds; NaN fails them too).
+export const escalation = (settings) => {
+  const e = settings.escalation
+  const within = (v, lo, hi) => typeof v === 'number' && v >= lo && v <= hi
+  return e?.enabled === true && within(e.percent, 0, 10000) && within(e.factor, 1, 100) ? e : null
+}
+
+export const escalated = (item, settings) => {
+  const e = escalation(settings)
+  return e != null && typeof item.startingPrice === 'number'
+    && item.currentAmount * 100 > item.startingPrice * (100 + e.percent)
+}
+
+// Capped at the maximum increment (else no bid would be valid), never below the
+// normal one. Rounded up: a fractional factor typed in the console gives a
+// fractional minimum, and the smallest whole bid above it is what the rules accept.
+export const increments = (item, settings) => {
+  const base = item.minIncrement ?? settings.minIncrement
+  const max = item.maxIncrement ?? settings.maxIncrement ?? null
+  if (!escalated(item, settings)) return { min: base, max }
+  const raised = base * settings.escalation.factor
+  return { min: Math.ceil(max == null || raised <= max ? raised : Math.max(max, base)), max }
+}
 
 // max(endTime, lastBidAt + antiSnipeSeconds)
 export const effectiveEnd = (item, settings) => {

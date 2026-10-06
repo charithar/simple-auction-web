@@ -86,6 +86,15 @@ describe('placeBid: refusals on an unchanged item', () => {
     expect(state.commits).toBe(2)
   })
 
+  it('a minimum the admin raised meanwhile: the retry is checked against it, "Minimum bid is …"', async () => {
+    state.denials = 5
+    state.item = { ...state.item, startingPrice: 4000, currentAmount: 6000, bidCount: 3 }
+    state.settingsNow = { ...SETTINGS, escalation: { enabled: true, percent: 25, factor: 2 } }
+    await expect(placeBid({}, { itemId: 'item-001', uid: 'alice', amount: 6050, settings: SETTINGS, seenBidCount: 3 }))
+      .rejects.toMatchObject({ code: 'too-low', message: 'Minimum bid is Rs. 6,100.' })
+    expect(state.commits).toBe(2) // the third attempt stopped at the client check
+  })
+
   describe('refused before the start time', () => {
     beforeEach(() => vi.useFakeTimers())
     afterEach(() => vi.useRealTimers())

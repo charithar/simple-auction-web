@@ -25,6 +25,7 @@
     "e2e:killswitch": "node scripts/browser/killswitch.mjs",
     "e2e:timing": "node scripts/browser/timing.mjs",
     "e2e:start": "node scripts/browser/start.mjs",
+    "e2e:escalation": "node scripts/browser/escalation.mjs",
     "e2e:phone": "node scripts/browser/phone.mjs",
     "e2e:webkit": "node scripts/browser/webkit.mjs",
     "e2e:run": "node scripts/browser/run-all.mjs",

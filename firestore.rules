@@ -9,7 +9,8 @@ rules_version = '2';
 // Each side checks the other with get()/getAfter() so neither can be written alone.
 //
 // Anti-sniping: an item's effective end is max(endTime, lastBidAt + antiSnipeSeconds).
-// Increments: item.minIncrement / item.maxIncrement override settings/auction values.
+// Increments: item.minIncrement / item.maxIncrement override settings/auction values;
+// settings/auction.escalation can raise the minimum once a price is well above its start.
 // Amounts are whole numbers (int) to avoid floating-point comparisons.
 //
 // This file is a TEMPLATE: scripts/build-rules.mjs (npm run rules / deploy:rules)
@@ -88,11 +89,33 @@ service cloud.firestore {
             && request.time < item.lastBidAt + duration.value(s.antiSnipeSeconds, 's'));
     }
 
+    // Raised minimum increment (settings/auction.escalation, set on the admin page):
+    // while enabled, an item whose price is over `percent`% above its starting
+    // price needs `factor` times its minimum increment. A malformed setting
+    // (e.g. edited by hand) raises nothing rather than refusing every bid. The
+    // upper bounds also rule out infinity (the admin page allows far less).
+    function escalated(before, s) {
+      let e = s.get('escalation', null);
+      return e is map
+        && e.get('enabled', false) == true
+        && e.get('percent', null) is number && e.percent >= 0 && e.percent <= 10000
+        && e.get('factor', null) is number && e.factor >= 1 && e.factor <= 100
+        && before.get('startingPrice', null) is number
+        && before.currentAmount * 100 > before.startingPrice * (100 + e.percent);
+    }
+
+    // The raised increment never goes past the item's maximum increment (that
+    // would leave no valid bid), nor below the normal one.
+    function cappedIncrement(base, raised, maxInc) {
+      return maxInc == null || raised <= maxInc ? raised : (maxInc < base ? base : maxInc);
+    }
+
     // First bid may equal the starting price (currentAmount before any bids);
-    // later bids must beat the current amount by at least minIncrement.
+    // later bids must beat the current amount by at least the minimum increment.
     function amountOk(before, amount, s) {
-      let minInc = before.get('minIncrement', s.minIncrement);
+      let baseInc = before.get('minIncrement', s.minIncrement);
       let maxInc = before.get('maxIncrement', s.get('maxIncrement', null));
+      let minInc = escalated(before, s) ? cappedIncrement(baseInc, baseInc * s.escalation.factor, maxInc) : baseInc;
       let floor = before.bidCount == 0 ? before.currentAmount : before.currentAmount + minInc;
       return amount is int
         && amount >= floor

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv, planSchedule, currentSchedule, lotsText } from '../../src/lib/admin.js'
+import {
+  planImport, toCsv, winnersCsv, bidsCsv, bidCountsCsv, planSchedule, currentSchedule, lotsText,
+  escalationProblem, escalationCapped, setEscalation, ESCALATION_DEFAULTS,
+} from '../../src/lib/admin.js'
 
 const ts = (ms) => ({ toMillis: () => ms })
 const END = Date.UTC(2030, 5, 1, 12)
@@ -182,5 +185,39 @@ describe('CSV', () => {
     expect(csv.split('\r\n').slice(1).map((r) => r.split(',').slice(0, 5).join(','))).toEqual([
       '1,A,1,7,u2', '1,A,2,9,Ann', '2,B,1,5,Ann',
     ])
+  })
+})
+
+describe('raised minimum increment: admin checks', () => {
+  it('defaults: off, over 25%, twice the increment', () => {
+    expect(ESCALATION_DEFAULTS).toEqual({ enabled: false, percent: 25, factor: 2 })
+  })
+  it('accepts whole numbers in range', () => {
+    expect(escalationProblem({ percent: 25, factor: 2 })).toBe('')
+    expect(escalationProblem({ percent: 1, factor: 10 })).toBe('')
+    expect(escalationProblem({ percent: 1000, factor: 2 })).toBe('')
+  })
+  it('refuses a bad percentage', () => {
+    for (const percent of [0, 1001, 2.5, NaN, '25', null]) {
+      expect(escalationProblem({ percent, factor: 2 }), String(percent)).toBe('The percentage must be a whole number from 1 to 1000.')
+    }
+  })
+  it('refuses a bad multiplier (whole numbers keep every minimum a whole amount)', () => {
+    for (const factor of [1, 11, 1.5, NaN, '2', undefined]) {
+      expect(escalationProblem({ percent: 25, factor }), String(factor)).toBe('The multiplier must be a whole number from 2 to 10.')
+    }
+  })
+  it('setEscalation refuses bad values without writing', async () => {
+    await expect(setEscalation(null, { enabled: true, percent: 25, factor: 1 })).rejects.toThrow('The multiplier must be')
+  })
+  it('lists the items whose raise would pass their maximum increment', () => {
+    const items = [
+      dbItem({ id: 'item-001' }), // 50 × 4 = 200 ≤ 300
+      dbItem({ id: 'item-002', minIncrement: 100 }), // 400 > 300
+      dbItem({ id: 'item-003', minIncrement: 100, maxIncrement: 1000 }), // own max: fine
+      dbItem({ id: 'item-004', maxIncrement: 150 }), // 200 > 150
+    ]
+    expect(escalationCapped(items, { ...settings, maxIncrement: 300 }, 4).map((i) => i.id)).toEqual(['item-002', 'item-004'])
+    expect(escalationCapped(items, settings, 4).map((i) => i.id)).toEqual(['item-004']) // no global max
   })
 })

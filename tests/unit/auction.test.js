@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   effectiveEnd, minNextBid, maxNextBid, validateBid, formatRemaining,
   startOf, notStartedYet, formatStart, toLocalInput, formatWindow, startInvalid, biddingClosed, closingBeforeStart,
+  escalation, escalated, increments,
 } from '../../src/lib/auction.js'
 
 const settings = { biddingOpen: true, minIncrement: 50, maxIncrement: 1000, antiSnipeSeconds: 120 }
@@ -124,5 +125,69 @@ describe('formatRemaining', () => {
     expect(formatRemaining(125_000)).toBe('2m 5s')
     expect(formatRemaining(3_723_000)).toBe('1h 2m')
     expect(formatRemaining(90_000_000)).toBe('1d 1h')
+  })
+})
+
+describe('raised minimum increment (settings.escalation)', () => {
+  const ESC = { enabled: true, percent: 25, factor: 2 }
+  const on = (over = {}) => ({ ...settings, maxIncrement: null, escalation: { ...ESC, ...over } })
+  // Starting price 4000: over 25% means a price above 5000.
+  const lot = (currentAmount, over = {}) => item({ startingPrice: 4000, currentAmount, bidCount: 3, ...over })
+
+  it('raises nothing at exactly the threshold', () => {
+    expect(escalated(lot(5000), on())).toBe(false)
+    expect(minNextBid(lot(5000), on())).toBe(5050)
+  })
+  it('doubles the increment once the price is over it', () => {
+    expect(escalated(lot(5001), on())).toBe(true)
+    expect(minNextBid(lot(5001), on())).toBe(5101)
+    expect(minNextBid(lot(6000), on())).toBe(6100)
+  })
+  it('the percentage and multiplier are the admin\'s', () => {
+    expect(minNextBid(lot(4500), on({ percent: 10, factor: 3 }))).toBe(4650) // 4500 > 4400
+    expect(minNextBid(lot(4400), on({ percent: 10, factor: 3 }))).toBe(4450) // not over 4400
+  })
+  it('switched off, or no setting at all: the normal increment', () => {
+    expect(minNextBid(lot(6000), on({ enabled: false }))).toBe(6050)
+    expect(minNextBid(lot(6000), settings)).toBe(6050)
+    expect(escalation(settings)).toBeNull()
+  })
+  it('a malformed setting (edited by hand) raises nothing, like the rules', () => {
+    for (const bad of [
+      { enabled: 'true' }, { percent: '25' }, { factor: '2' }, { percent: -1 }, { factor: 0.5 },
+      { percent: null }, { factor: undefined }, { percent: NaN }, { factor: Infinity }, { factor: 101 }, { percent: 10001 },
+    ]) {
+      expect(escalation(on(bad)), JSON.stringify(bad)).toBeNull()
+      expect(minNextBid(lot(6000), on(bad))).toBe(6050)
+    }
+    expect(escalation({ ...settings, escalation: 'on' })).toBeNull()
+    expect(escalation(on({ factor: 100, percent: 10000 }))).not.toBeNull() // the bounds themselves are fine
+  })
+  it('an item without a starting price is never raised', () => {
+    expect(escalated(item({ currentAmount: 9000, bidCount: 3 }), on())).toBe(false)
+  })
+  it('per-item increments are the ones multiplied', () => {
+    expect(minNextBid(lot(6000, { minIncrement: 500 }), on())).toBe(7000)
+  })
+  it('held at the maximum increment, so a valid bid always exists', () => {
+    const s = { ...on({ factor: 10 }), maxIncrement: 300 }
+    expect(increments(lot(6000), s)).toEqual({ min: 300, max: 300 })
+    expect(validateBid(lot(6000), s, 6300, NOW).ok).toBe(true)
+    expect(increments(lot(6000), { ...on({ factor: 4 }), maxIncrement: 300 })).toEqual({ min: 200, max: 300 }) // under the max
+    expect(increments(lot(6000), { ...on({ factor: 6 }), maxIncrement: 300 })).toEqual({ min: 300, max: 300 }) // exactly at it
+  })
+  it('never below the normal increment, even when the maximum is (a misconfigured item)', () => {
+    expect(increments(lot(6000, { minIncrement: 500, maxIncrement: 200 }), on())).toEqual({ min: 500, max: 200 })
+  })
+  it('a fractional multiplier (typed in the console) rounds the minimum up to a whole amount', () => {
+    expect(increments(lot(6000), on({ factor: 1.5 }))).toEqual({ min: 75, max: null })
+    expect(increments(lot(6000, { minIncrement: 75 }), on({ factor: 1.5 }))).toEqual({ min: 113, max: null }) // 112.5
+  })
+  it('the first bid is still the starting price', () => {
+    expect(minNextBid(lot(6000, { bidCount: 0 }), on())).toBe(6000)
+  })
+  it('validateBid uses the raised minimum', () => {
+    expect(validateBid(lot(6000), on(), 6099, NOW)).toEqual({ ok: false, code: 'too-low', message: 'Minimum bid is Rs. 6,100.' })
+    expect(validateBid(lot(6000), on(), 6100, NOW)).toEqual({ ok: true })
   })
 })

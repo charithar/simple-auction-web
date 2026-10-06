@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { db } from '../../firebase.js'
-import { updateSettings, setKillSwitch, setStartTime, lotsText } from '../../lib/admin.js'
-import { startOf, startInvalid, formatStart, toLocalInput, closingBeforeStart, effectiveEnd } from '../../lib/auction.js'
+import {
+  updateSettings, setKillSwitch, setStartTime, lotsText,
+  ESCALATION_DEFAULTS, escalationProblem, escalationCapped, setEscalation,
+} from '../../lib/admin.js'
+import { startOf, startInvalid, formatStart, toLocalInput, closingBeforeStart, effectiveEnd, escalation } from '../../lib/auction.js'
 import { useNow } from '../../stores/clock.js'
 import { subscribeKillSwitch } from '../../lib/items.js'
 import ConfirmButton from './ConfirmButton.vue'
@@ -42,6 +45,27 @@ const Lots = (items) => lotsText(items).replace(/^l/, 'L') // at the start of a 
 const currentConflict = computed(() => closingBeforeStart(props.items, start.value, endOf))
 const saveStart = () => save(() => setStartTime(db, startInput.value ? new Date(startInput.value) : null))
 const clearStart = () => save(() => setStartTime(db, null))
+
+// Raised minimum increment once a price is well above its start (settings.escalation;
+// the rules enforce it). The form is reset only when the stored values change.
+const esc = computed(() => ({ ...ESCALATION_DEFAULTS, ...props.settings.escalation }))
+// What the rules apply: a malformed stored setting (edited by hand) raises nothing.
+const escActive = computed(() => escalation(props.settings))
+const escMalformed = computed(() => props.settings.escalation?.enabled === true && !escActive.value)
+const escForm = ref({ enabled: false, percent: '', factor: '' })
+watch(() => `${esc.value.enabled}|${esc.value.percent}|${esc.value.factor}`, () => {
+  escForm.value = { enabled: esc.value.enabled === true, percent: String(esc.value.percent), factor: String(esc.value.factor) }
+}, { immediate: true })
+const escValues = computed(() => ({
+  enabled: escForm.value.enabled,
+  percent: /^\d+$/.test(escForm.value.percent.trim()) ? Number(escForm.value.percent.trim()) : NaN,
+  factor: /^\d+$/.test(escForm.value.factor.trim()) ? Number(escForm.value.factor.trim()) : NaN,
+}))
+const escProblem = computed(() => escalationProblem(escValues.value))
+const escChanged = computed(() => ['enabled', 'percent', 'factor'].some((k) => escValues.value[k] !== esc.value[k]))
+const escCapped = computed(() =>
+  escProblem.value ? [] : escalationCapped(props.items, props.settings, escValues.value.factor))
+const saveEscalation = () => save(() => setEscalation(db, escValues.value))
 
 // Emergency stop (settings/killswitch): the rules then refuse every non-admin.
 const killed = ref(false)
@@ -156,6 +180,60 @@ async function save(patch) {
       Optional. Switch bidding on beforehand: bids are accepted from this time (by the server's clock) and bidders' pages
       open by themselves. Until then they can browse the items and prices.
     </p>
+
+    <form class="mt-4 border-t border-slate-100 pt-3" data-escalation @submit.prevent="saveEscalation">
+      <div class="flex flex-wrap items-center gap-3">
+        <h3 class="text-sm font-semibold">Raised minimum increment</h3>
+        <span
+          :class="escActive ? 'bg-emerald-100 text-emerald-800' : escMalformed ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-600'"
+          class="rounded-full px-3 py-1 text-xs font-semibold"
+        >
+          {{ escActive ? `On: ${escActive.factor}× once over ${100 + escActive.percent}% of the starting price` : escMalformed ? 'Off: invalid setting' : 'Off' }}
+        </span>
+      </div>
+      <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <label class="flex items-center gap-1.5">
+          <input id="escalation-enabled" v-model="escForm.enabled" type="checkbox" class="h-4 w-4" />
+          On
+        </label>
+        <label for="escalation-percent">when the price is over</label>
+        <input
+          id="escalation-percent"
+          v-model="escForm.percent"
+          inputmode="numeric"
+          class="w-16 rounded-md border border-slate-300 px-2 py-1 text-right"
+        />
+        <span>% above the starting price,</span>
+        <label for="escalation-factor">multiply the minimum increment by</label>
+        <input
+          id="escalation-factor"
+          v-model="escForm.factor"
+          inputmode="numeric"
+          class="w-14 rounded-md border border-slate-300 px-2 py-1 text-right"
+        />
+        <button
+          type="submit"
+          :disabled="busy || !!escProblem || !escChanged"
+          class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+        >
+          Save
+        </button>
+      </div>
+      <p v-if="escProblem" class="mt-1 text-sm text-rose-700" role="alert">{{ escProblem }}</p>
+      <p v-else-if="escMalformed && !escChanged" class="mt-1 text-sm text-rose-700" role="alert">
+        The stored setting isn't valid (edited by hand?), so nothing is raised. Correct the values and save.
+      </p>
+      <p v-else-if="escChanged" class="mt-1 text-xs text-amber-800">Not saved yet.</p>
+      <p v-if="!escProblem && escCapped.length" class="mt-1 text-xs text-amber-800">
+        {{ escCapped.length === items.length ? 'For every item' : `For ${lotsText(escCapped)}` }}, this would pass the
+        maximum increment, so the raised minimum is held at the maximum.
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        Applies to every item, judged on its current price, and takes effect at once (bidders' pages update by
+        themselves). Example: starting price 4,000, over 25% means above 5,000; from then on, a minimum increment
+        of 50 becomes 100.
+      </p>
+    </form>
 
     <p class="mt-3 text-xs text-slate-500">
       Min increment {{ settings.minIncrement }}<template v-if="settings.maxIncrement">, max {{ settings.maxIncrement }}</template>,

@@ -95,12 +95,15 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
         // Say why when we can tell: the admin closed bidding (before our settings
         // listener heard of it), or the item closed.
         const current = (await getDocFromServer(doc(db, 'settings', 'auction')).catch(unavailableIfRefused)).data()
+        // Check the next attempt against these: a minimum the admin just raised
+        // (escalation) then reads "Minimum bid is …", not a bare refusal.
+        if (current) settings = current
         // Switched off, or a start time the rules can't use (not a timestamp).
         if (current && biddingClosed(current)) throw new BidError('closed', 'Bidding is currently closed.')
         // Refused before the start by the server's clock. Clearly ahead (the page hadn't
         // heard of the start time): say so. Right at the start (this device's clock runs a
         // little ahead): wait until it has certainly passed and try again.
-        const start = startOf(current ?? settings)
+        const start = startOf(settings)
         if (start != null && serverNow() < start + CLOSE_MARGIN_MS) {
           if (serverNow() < start - CLOSE_MARGIN_MS) {
             throw new BidError('not-started', `Bidding hasn't started yet. It opens at ${formatStart(start, serverNow())}.`)
@@ -108,7 +111,7 @@ export async function placeBid(db, { itemId, uid, amount, settings, now = Date.n
           await new Promise((r) => setTimeout(r, start + CLOSE_MARGIN_MS - serverNow()))
           continue
         }
-        if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, current ?? settings)) {
+        if (fresh && serverNow() + CLOSE_MARGIN_MS >= effectiveEnd(fresh, settings)) {
           throw new BidError('ended', 'Bidding on this item has just closed.')
         }
         // Open, and not closing: whatever refused us has passed (e.g. a pause of
